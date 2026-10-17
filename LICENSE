@@ -1,21 +1,62 @@
-MIT License
-
+FlockBuilder License v1.0
 Copyright (c) 2026 Parakeet Labz
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This license covers the FlockBuilder software ("the Software"), including its
+engine source code, demo games, visual Game Builder, documentation, and website.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. WHAT YOU MAY DO
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+   Permission is granted, free of charge, to use, run, study, copy, modify,
+   and share the Software and your modifications of it, for any purpose —
+   personal, educational, or commercial — subject to the conditions below.
+
+2. GIVE CREDIT
+
+   Every copy or modified version you share must keep this license file and
+   all existing copyright and attribution notices intact (including
+   "Made by Parakeet Labz" / "FlockBuilder" credits in the source code,
+   documentation, and about screens). You may add your own notices alongside
+   them, but you may not remove or hide the originals.
+
+3. MODS, NOT CLONES
+
+   You may publish modified versions ("mods"), provided that:
+
+   a. A mod must contain real changes you made — new features, levels, art,
+      gameplay, or other substantive edits. Cosmetic-only changes such as
+      renaming the project, swapping colors, or rewording text do not make
+      it a new work.
+
+   b. You must clearly state that your version is a modified version of
+      FlockBuilder by Parakeet Labz (for example: "Based on FlockBuilder by
+      Parakeet Labz"), placed where users will see it (readme, about page,
+      or credits screen).
+
+   c. You must not claim, state, or imply that you are the original creator
+      of the Software, and you must not distribute the Software — modified
+      or not — under a different name in a way that hides or replaces its
+      origin.
+
+4. NO FALSE ENDORSEMENT
+
+   You may not state or imply that Parakeet Labz endorses your version,
+   unless you have written permission.
+
+5. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+   IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+   CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+   TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE
+   SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+6. TERMINATION
+
+   If you violate the terms above, your rights under this license end
+   automatically. This does not affect the rights of anyone who received a
+   lawful copy from you before the violation.
+
+In short: mod it, share your mods, build cool things with it — just don't
+copy it wholesale and pretend you made it.

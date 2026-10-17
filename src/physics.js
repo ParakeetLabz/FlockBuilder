@@ -9,8 +9,10 @@ export function applyGravity(e, g, dt, maxFall = 1500) {
 
 // Moves an entity by its velocity, resolving against solid entities.
 // Returns { x: -1|0|1, y: -1|0|1 } hit flags. Zeroes velocity on the hit axis.
+// Also sets e.groundRef to the solid the entity landed on (or null).
 export function moveAndCollide(e, solids, dt) {
   const hits = { x: 0, y: 0 };
+  e.groundRef = null;
 
   e.pos.x += e.vel.x * dt;
   for (const s of solids) {
@@ -50,6 +52,7 @@ export function moveAndCollide(e, solids, dt) {
         hits.y = pushUp < pushDown ? -1 : 1;
       }
       e.vel.y = 0;
+      e.groundRef = s;
     }
   }
 

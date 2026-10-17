@@ -17,6 +17,55 @@ import {
 export const WORLD_W = 960;
 export const WORLD_H = 540;
 
+// Every object type the builder can place.
+export const OBJECT_TYPES = [
+  'player', 'wall', 'coin', 'enemy', 'goal',
+  'platform', 'spikes', 'spring', 'key', 'door', 'sign',
+];
+
+export function validObj(o) {
+  return (
+    o &&
+    typeof o === 'object' &&
+    OBJECT_TYPES.includes(o.type) &&
+    Number.isFinite(o.x) &&
+    Number.isFinite(o.y) &&
+    Number.isFinite(o.w) &&
+    Number.isFinite(o.h)
+  );
+}
+
+// Accepts every level format the builder has ever written and normalizes it
+// to [{ name, objects }]. Returns null when there is nothing usable.
+//   v0: bare array of objects (original autosave)
+//   v1: { objects } (original export)
+//   v2: { rooms: [{ name, objects }] }
+export function normalizeRooms(data) {
+  try {
+    if (!data) return null;
+    if (Array.isArray(data)) {
+      const objects = data.filter(validObj);
+      return objects.length > 0 ? [{ name: 'Room 1', objects }] : null;
+    }
+    if (Array.isArray(data.rooms)) {
+      const rooms = data.rooms
+        .map((r, i) => ({
+          name: typeof r.name === 'string' && r.name ? r.name.slice(0, 24) : `Room ${i + 1}`,
+          objects: Array.isArray(r.objects) ? r.objects.filter(validObj) : [],
+        }))
+        .filter((r) => r.objects.length > 0);
+      return rooms.length > 0 ? rooms : null;
+    }
+    if (Array.isArray(data.objects)) {
+      const objects = data.objects.filter(validObj);
+      return objects.length > 0 ? [{ name: 'Room 1', objects }] : null;
+    }
+  } catch (e) {
+    /* corrupted data — fall through to null */
+  }
+  return null;
+}
+
 // Rounded-rect path helper (with fallback for older canvas implementations).
 export function rr(ctx, x, y, w, h, r) {
   r = Math.max(0, Math.min(r, w / 2, h / 2));
@@ -27,6 +76,7 @@ export function rr(ctx, x, y, w, h, r) {
 
 // ---------------------------------------------------------------- Hero ----
 // The player character: runs with arrows/AD, jumps with Space/W/Up.
+// Rides moving platforms and bounces on springs.
 
 export class Hero extends Sprite {
   constructor(o = {}) {
@@ -39,6 +89,7 @@ export class Hero extends Sprite {
     });
     this.addTag('hero');
     this.grounded = false;
+    this.groundRef = null;
     this.face = 1;
     this.walkT = 0;
     this.solids = [];
@@ -65,6 +116,12 @@ export class Hero extends Sprite {
     applyGravity(this, 2200, dt);
     const hits = moveAndCollide(this, this.solids, dt);
     this.grounded = hits.y === 1;
+    this.groundRef = this.grounded ? this.groundRef : null;
+    // Ride moving platforms
+    if (this.grounded && this.groundRef && this.groundRef.isPlatform) {
+      this.pos.x += this.groundRef.dx || 0;
+      this.pos.y += this.groundRef.dy || 0;
+    }
     // Keep inside the world horizontally
     this.pos.x = clamp(this.pos.x, 0, WORLD_W - this.size.x);
     super.update(dt, game);
@@ -186,6 +243,277 @@ export class Enemy extends Sprite {
   }
 }
 
+// ------------------------------------------------------- MovingPlatform ---
+// Solid platform gliding on a smooth ping-pong path. Carries the player.
+
+export class MovingPlatform extends Sprite {
+  constructor(o = {}) {
+    super({
+      x: o.x ?? 0,
+      y: o.y ?? 0,
+      w: o.w ?? 120,
+      h: o.h ?? 24,
+      color: o.color ?? '#8b5cf6',
+    });
+    this.addTag('platform');
+    this.solid = true;
+    this.isPlatform = true;
+    this.originX = o.x ?? 0;
+    this.originY = o.y ?? 0;
+    this.range = o.range ?? 200;
+    this.speed = o.speed ?? 100;
+    this.axis = o.axis === 'y' ? 'y' : 'x';
+    this.t = Math.random();
+    this.dx = 0;
+    this.dy = 0;
+  }
+
+  update(dt) {
+    const px = this.pos.x;
+    const py = this.pos.y;
+    this.t += (dt * this.speed) / Math.max(1, this.range);
+    const k = (Math.sin(this.t * Math.PI * 2 - Math.PI / 2) + 1) / 2; // 0..1
+    if (this.axis === 'x') this.pos.x = this.originX + k * this.range;
+    else this.pos.y = this.originY + k * this.range;
+    this.dx = this.pos.x - px;
+    this.dy = this.pos.y - py;
+    super.update(dt);
+  }
+
+  draw(ctx) {
+    if (!this.visible) return;
+    const x = this.pos.x;
+    const y = this.pos.y;
+    const w = this.size.x;
+    const h = this.size.y;
+    ctx.save();
+    ctx.fillStyle = this.color;
+    rr(ctx, x, y, w, h, 8);
+    ctx.fill();
+    // Direction arrows
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.font = `bold ${Math.min(16, h)}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(this.axis === 'x' ? '⇔' : '⇕', x + w / 2, y + h / 2 + 1);
+    ctx.restore();
+  }
+}
+
+// ---------------------------------------------------------------- Spikes --
+// Static hazard. Touching them defeats the player.
+
+export class Spikes extends Entity {
+  constructor(o = {}) {
+    super({ x: o.x ?? 0, y: o.y ?? 0, w: o.w ?? 60, h: o.h ?? 24 });
+    this.addTag('spikes');
+    this.color = o.color ?? '#f97316';
+  }
+
+  draw(ctx) {
+    if (!this.visible) return;
+    const x = this.pos.x;
+    const y = this.pos.y;
+    const w = this.size.x;
+    const h = this.size.y;
+    const n = Math.max(2, Math.round(w / 20));
+    const sw = w / n;
+    ctx.save();
+    ctx.fillStyle = this.color;
+    for (let i = 0; i < n; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x + i * sw, y + h);
+      ctx.lineTo(x + i * sw + sw / 2, y);
+      ctx.lineTo(x + (i + 1) * sw, y + h);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(x, y + h - 5, w, 5);
+    ctx.restore();
+  }
+}
+
+// ---------------------------------------------------------------- Spring --
+// Bounce pad: launches the player upward on contact.
+
+export class Spring extends Entity {
+  constructor(o = {}) {
+    super({ x: o.x ?? 0, y: o.y ?? 0, w: o.w ?? 44, h: o.h ?? 28 });
+    this.addTag('spring');
+    this.color = o.color ?? '#a3e635';
+    this.power = o.power ?? 1100;
+    this.squish = 0;
+  }
+
+  bounce() {
+    this.squish = 1;
+  }
+
+  update(dt) {
+    this.squish = Math.max(0, this.squish - dt * 5);
+    super.update(dt);
+  }
+
+  draw(ctx) {
+    if (!this.visible) return;
+    const x = this.pos.x;
+    const y = this.pos.y;
+    const w = this.size.x;
+    const h = this.size.y;
+    const s = 1 - this.squish * 0.45;
+    ctx.save();
+    // Base
+    ctx.fillStyle = '#4d7c0f';
+    rr(ctx, x, y + h - 8, w, 8, 3);
+    ctx.fill();
+    // Coil
+    ctx.strokeStyle = '#65a30d';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    const coils = 3;
+    const top = y + 4 + (h - 12) * (1 - s);
+    for (let i = 0; i <= coils * 2; i++) {
+      const yy = y + h - 8 - ((h - 12) * s * i) / (coils * 2);
+      const xx = x + w / 2 + (i % 2 === 0 ? -w * 0.28 : w * 0.28);
+      if (i === 0) ctx.moveTo(xx, yy);
+      else ctx.lineTo(xx, yy);
+    }
+    ctx.stroke();
+    // Pad
+    ctx.fillStyle = this.color;
+    rr(ctx, x + 2, top - 4, w - 4, 10, 4);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ------------------------------------------------------------------ Key ---
+// Collect it to open every door in the room.
+
+export class Key extends Entity {
+  constructor(o = {}) {
+    super({ x: o.x ?? 0, y: o.y ?? 0, w: o.w ?? 26, h: o.h ?? 30 });
+    this.addTag('key');
+    this.color = o.color ?? '#fbbf24';
+    this.t = rand(0, 6);
+  }
+
+  update(dt) {
+    this.t += dt;
+    super.update(dt);
+  }
+
+  draw(ctx) {
+    if (!this.visible) return;
+    const w = this.size.x;
+    const h = this.size.y;
+    const bob = Math.sin(this.t * 3) * 3;
+    ctx.save();
+    ctx.translate(this.pos.x + w / 2, this.pos.y + h / 2 + bob);
+    ctx.fillStyle = this.color;
+    // Bow
+    ctx.beginPath();
+    ctx.arc(-4, -6, 7, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#0b1020';
+    ctx.beginPath();
+    ctx.arc(-4, -6, 3, 0, TAU);
+    ctx.fill();
+    // Shaft + teeth
+    ctx.fillStyle = this.color;
+    ctx.fillRect(-1, -2, 5, 16);
+    ctx.fillRect(-1, 8, 9, 4);
+    ctx.fillRect(-1, 13, 7, 4);
+    ctx.restore();
+  }
+}
+
+// ----------------------------------------------------------------- Door ---
+// Solid until a key is collected, then it opens.
+
+export class Door extends Sprite {
+  constructor(o = {}) {
+    super({
+      x: o.x ?? 0,
+      y: o.y ?? 0,
+      w: o.w ?? 44,
+      h: o.h ?? 76,
+      color: o.color ?? '#b45309',
+    });
+    this.addTag('door');
+    this.solid = true;
+    this.isDoor = true;
+  }
+
+  open() {
+    this.active = false;
+    this.visible = false;
+  }
+
+  draw(ctx) {
+    if (!this.visible) return;
+    const x = this.pos.x;
+    const y = this.pos.y;
+    const w = this.size.x;
+    const h = this.size.y;
+    ctx.save();
+    ctx.fillStyle = this.color;
+    rr(ctx, x, y, w, h, 6);
+    ctx.fill();
+    // Planks
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+    ctx.lineWidth = 2;
+    for (let i = 1; i < 4; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x + 4, y + (h * i) / 4);
+      ctx.lineTo(x + w - 4, y + (h * i) / 4);
+      ctx.stroke();
+    }
+    // Keyhole
+    ctx.fillStyle = '#0b1020';
+    ctx.beginPath();
+    ctx.arc(x + w / 2, y + h * 0.45, 5, 0, TAU);
+    ctx.fill();
+    ctx.fillRect(x + w / 2 - 2, y + h * 0.45, 4, 10);
+    ctx.restore();
+  }
+}
+
+// ----------------------------------------------------------------- Sign ---
+// Shows a message dialog when the player touches it.
+
+export class Sign extends Entity {
+  constructor(o = {}) {
+    super({ x: o.x ?? 0, y: o.y ?? 0, w: o.w ?? 34, h: o.h ?? 44 });
+    this.addTag('sign');
+    this.color = o.color ?? '#d6a35c';
+    this.message = o.message ?? 'Hello!';
+  }
+
+  draw(ctx) {
+    if (!this.visible) return;
+    const x = this.pos.x;
+    const y = this.pos.y;
+    const w = this.size.x;
+    const h = this.size.y;
+    ctx.save();
+    // Post
+    ctx.fillStyle = '#8a6a3b';
+    ctx.fillRect(x + w / 2 - 3, y + h * 0.4, 6, h * 0.6);
+    // Board
+    ctx.fillStyle = this.color;
+    rr(ctx, x, y, w, h * 0.55, 5);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.font = `bold ${Math.min(18, h * 0.32)}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('!', x + w / 2, y + h * 0.28);
+    ctx.restore();
+  }
+}
+
 // ---------------------------------------------------------------- Coin ----
 
 export class Coin extends Entity {
@@ -221,7 +549,7 @@ export class Coin extends Entity {
 }
 
 // ---------------------------------------------------------------- Goal ----
-// Reaching the flag wins the level.
+// Reaching the flag advances to the next room, or wins the game.
 
 export class Goal extends Entity {
   constructor(o = {}) {
@@ -290,45 +618,89 @@ export class Cloud extends Entity {
   }
 }
 
-// ---------------------------------------------------------------- PlayScene
+// ------------------------------------------------------------- PlayScene --
 // Turns builder level data (plain objects) into a playable game.
+// Supports multiple rooms: the goal flag advances to the next room.
 
 export class PlayScene extends Scene {
-  constructor(game, objects = []) {
+  constructor(game, rooms, startIndex = 0) {
     super(game);
     this.bg = '#7dd3fc';
+    this.rooms = rooms;
+    this.roomIndex = startIndex;
+    this.roomName = rooms[startIndex] ? rooms[startIndex].name || `Room ${startIndex + 1}` : '';
+    this.bannerT = 2.2; // "Room N" intro banner
     this.state = 'play'; // play | win | dead
     this.score = 0;
+    this.hasKey = false;
+    this.message = null;
+    this.messageT = 0;
     this.solids = [];
     this.coins = [];
     this.enemies = [];
+    this.spikes = [];
+    this.springs = [];
+    this.doors = [];
+    this.signs = [];
     this.goal = null;
-    this.onRestart = null; // called when the player asks to replay
-    this.onStop = null; // called when the player presses ESC
+    this.onRestart = null; // replay this room
+    this.onAdvance = null; // go to next room
+    this.onStop = null; // back to editor
 
+    const objects = rooms[startIndex] ? rooms[startIndex].objects : [];
     let playerData = null;
     for (const o of objects) {
-      if (o.type === 'wall') {
-        const s = new Sprite({
-          x: o.x, y: o.y, w: o.w, h: o.h, color: o.color || '#475569',
-        });
-        s.solid = true;
-        this.add(s);
-        this.solids.push(s);
-      } else if (o.type === 'coin') {
-        const c = new Coin(o);
-        this.add(c);
-        this.coins.push(c);
-      } else if (o.type === 'enemy') {
-        const e = new Enemy(o);
-        this.add(e);
-        this.enemies.push(e);
-      } else if (o.type === 'goal') {
-        this.goal = this.add(new Goal(o));
-      } else if (o.type === 'player') {
-        playerData = o;
+      switch (o.type) {
+        case 'wall': {
+          const s = new Sprite({ x: o.x, y: o.y, w: o.w, h: o.h, color: o.color || '#475569' });
+          s.solid = true;
+          this.add(s);
+          this.solids.push(s);
+          break;
+        }
+        case 'platform': {
+          const p = new MovingPlatform(o);
+          this.add(p);
+          this.solids.push(p);
+          break;
+        }
+        case 'coin':
+          this.coins.push(this.add(new Coin(o)));
+          break;
+        case 'enemy':
+          this.enemies.push(this.add(new Enemy(o)));
+          break;
+        case 'spikes':
+          this.spikes.push(this.add(new Spikes(o)));
+          break;
+        case 'spring':
+          this.springs.push(this.add(new Spring(o)));
+          break;
+        case 'key':
+          this.keys = this.keys || [];
+          this.keys.push(this.add(new Key(o)));
+          break;
+        case 'door': {
+          const d = new Door(o);
+          this.add(d);
+          this.doors.push(d);
+          this.solids.push(d);
+          break;
+        }
+        case 'sign':
+          this.signs.push(this.add(new Sign(o)));
+          break;
+        case 'goal':
+          this.goal = this.add(new Goal(o));
+          break;
+        case 'player':
+          playerData = o;
+          break;
+        default:
+          break;
       }
     }
+    this.keys = this.keys || [];
     if (!playerData) playerData = { x: 60, y: 60, w: 36, h: 46, color: '#22d3ee' };
     this.player = this.add(new Hero(playerData));
     this.player.solids = this.solids;
@@ -338,6 +710,10 @@ export class PlayScene extends Scene {
       this.add(new Cloud(rand(0, WORLD_W), rand(20, 200), rand(0.7, 1.3)));
     }
     game.camera.follow(this.player, 6);
+  }
+
+  get isLastRoom() {
+    return this.roomIndex >= this.rooms.length - 1;
   }
 
   lose() {
@@ -358,7 +734,7 @@ export class PlayScene extends Scene {
     });
   }
 
-  win() {
+  winGame() {
     if (this.state !== 'play') return;
     this.state = 'win';
     const g = this.goal;
@@ -374,12 +750,47 @@ export class PlayScene extends Scene {
     });
   }
 
+  openDoors() {
+    for (const d of this.doors) {
+      if (!d.active) continue;
+      d.open();
+      this.game.particles.emit(d.cx, d.cy, {
+        count: 14,
+        color: ['#b45309', '#fbbf24'],
+        vx: [-160, 160],
+        vy: [-220, -40],
+        gravity: 600,
+        life: [0.4, 0.8],
+        size: [2, 6],
+      });
+    }
+    this.game.audio.play('powerup');
+  }
+
   update(dt) {
     super.update(dt);
     const input = this.game.input;
+    if (this.bannerT > 0) this.bannerT -= dt;
+    if (this.messageT > 0) {
+      this.messageT -= dt;
+      if (this.messageT <= 0) this.message = null;
+    }
 
     if (this.state === 'play') {
       const p = this.player;
+
+      // Springs bounce the player
+      for (const s of this.springs) {
+        if (s.active && p.vel.y >= 0 && overlaps(p, s)) {
+          p.pos.y = s.pos.y - p.size.y;
+          p.vel.y = -s.power;
+          p.grounded = false;
+          s.bounce();
+          this.game.audio.play('boing');
+        }
+      }
+
+      // Coins
       for (const c of this.coins) {
         if (c.active && overlaps(p, c)) {
           c.active = false;
@@ -397,16 +808,50 @@ export class PlayScene extends Scene {
           });
         }
       }
+
+      // Keys open doors
+      for (const k of this.keys) {
+        if (k.active && overlaps(p, k)) {
+          k.active = false;
+          k.visible = false;
+          this.hasKey = true;
+          this.openDoors();
+        }
+      }
+
+      // Hazards
       for (const e of this.enemies) {
         if (overlaps(p, e)) {
           this.lose();
           return;
         }
       }
+      for (const s of this.spikes) {
+        if (s.active && overlaps(p, s)) {
+          this.lose();
+          return;
+        }
+      }
+
+      // Signs show messages
+      for (const s of this.signs) {
+        if (overlaps(p, s)) {
+          this.message = s.message;
+          this.messageT = 3;
+        }
+      }
+
+      // Goal: next room or win
       if (this.goal && overlaps(p, this.goal)) {
-        this.win();
+        if (this.isLastRoom) {
+          this.winGame();
+        } else if (this.onAdvance) {
+          this.game.audio.play('powerup');
+          this.onAdvance();
+        }
         return;
       }
+
       if (p.pos.y > WORLD_H + 360) {
         this.lose();
         return;
@@ -431,7 +876,8 @@ export class PlayScene extends Scene {
     ctx.textBaseline = 'top';
     ctx.lineWidth = 4;
     ctx.strokeStyle = 'rgba(2,6,23,0.55)';
-    const label = `Coins ${this.score}/${this.coinsTotal}`;
+    let label = `Coins ${this.score}/${this.coinsTotal}`;
+    if (this.keys.length > 0) label += this.hasKey ? '   🔑' : '   🔒';
     ctx.strokeText(label, 14, 12);
     ctx.fillStyle = '#ffffff';
     ctx.fillText(label, 14, 12);
@@ -442,12 +888,64 @@ export class PlayScene extends Scene {
     ctx.fillText('ESC: editor', WORLD_W - 14, 16);
     ctx.restore();
 
+    // Room intro banner
+    if (this.bannerT > 0 && this.state === 'play') {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, this.bannerT);
+      ctx.font = 'bold 44px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = 'rgba(2,6,23,0.55)';
+      ctx.strokeText(this.roomName, WORLD_W / 2, 90);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(this.roomName, WORLD_W / 2, 90);
+      ctx.restore();
+    }
+
+    // Sign dialog
+    if (this.message) {
+      ctx.save();
+      const tw = Math.min(560, WORLD_W - 80);
+      const tx = WORLD_W / 2 - tw / 2;
+      const ty = WORLD_H - 110;
+      ctx.fillStyle = 'rgba(15,23,42,0.92)';
+      rr(ctx, tx, ty, tw, 76, 12);
+      ctx.fill();
+      ctx.strokeStyle = '#22d3ee';
+      ctx.lineWidth = 2;
+      rr(ctx, tx, ty, tw, 76, 12);
+      ctx.stroke();
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = '16px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      // Simple word wrap
+      const words = String(this.message).split(' ');
+      const lines = [];
+      let line = '';
+      for (const w of words) {
+        const test = line ? line + ' ' + w : w;
+        if (ctx.measureText(test).width > tw - 40 && line) {
+          lines.push(line);
+          line = w;
+        } else {
+          line = test;
+        }
+      }
+      if (line) lines.push(line);
+      const shown = lines.slice(0, 3);
+      shown.forEach((l, i) => {
+        ctx.fillText(l, WORLD_W / 2, ty + 26 + i * 20 - (shown.length - 1) * 0);
+      });
+      ctx.restore();
+    }
+
     if (this.state === 'win' || this.state === 'dead') {
       ctx.save();
       ctx.fillStyle = 'rgba(2,6,23,0.5)';
       ctx.fillRect(0, 0, WORLD_W, WORLD_H);
-      const pw = 340;
-      const ph = 200;
+      const pw = 380;
+      const ph = 210;
       const px = WORLD_W / 2 - pw / 2;
       const py = WORLD_H / 2 - ph / 2;
       ctx.fillStyle = '#0f172a';
@@ -456,13 +954,13 @@ export class PlayScene extends Scene {
       ctx.textAlign = 'center';
       ctx.fillStyle = this.state === 'win' ? '#4ade80' : '#f87171';
       ctx.font = 'bold 38px system-ui, sans-serif';
-      ctx.fillText(this.state === 'win' ? 'You win!' : 'Ouch!', WORLD_W / 2, py + 32);
+      ctx.fillText(this.state === 'win' ? 'You win!' : 'Ouch!', WORLD_W / 2, py + 34);
       ctx.fillStyle = '#e2e8f0';
       ctx.font = '20px system-ui, sans-serif';
       ctx.fillText(`Coins: ${this.score}/${this.coinsTotal}`, WORLD_W / 2, py + 88);
       ctx.fillStyle = '#64748b';
       ctx.font = '15px system-ui, sans-serif';
-      ctx.fillText('R / click: play again   •   ESC: editor', WORLD_W / 2, py + 138);
+      ctx.fillText('R / click: play again   •   ESC: editor', WORLD_W / 2, py + 140);
       ctx.restore();
     }
   }

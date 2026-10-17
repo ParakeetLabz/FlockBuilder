@@ -1,10 +1,10 @@
 // FlockBuilder — builder/builder.js
-// The visual, code-free Game Builder: place players, walls, coins, enemies
-// and goals with clicks, drag them around, tweak properties, then press
-// Play. Levels auto-save to localStorage and can be exported as JSON.
+// The visual, code-free Game Builder: multiple rooms, 11 object types,
+// click-to-place, drag-to-move, properties panel, instant Play mode.
+// Levels auto-save to localStorage and can be exported as JSON.
 
 import { Game, Scene, Sprite } from '../src/flock.js';
-import { PlayScene, WORLD_W, WORLD_H } from './game-objects.js';
+import { PlayScene, WORLD_W, WORLD_H, validObj, normalizeRooms } from './game-objects.js';
 
 const STORE_KEY = 'flockbuilder-builder-level-v1';
 const SNAP = 10;
@@ -14,16 +14,17 @@ const DEFAULTS = {
   wall: { w: 140, h: 30, color: '#475569', label: 'Wall — solid platform.' },
   coin: { w: 26, h: 26, color: '#fde047', label: 'Coin — collect for points.' },
   enemy: { w: 38, h: 38, color: '#ef4444', range: 160, speed: 130, label: 'Enemy — patrols, avoid it.' },
-  goal: { w: 54, h: 70, color: '#22c55e', label: 'Goal — reach the flag to win.' },
+  goal: { w: 54, h: 70, color: '#22c55e', label: 'Goal — reach the flag for the next room.' },
+  platform: { w: 120, h: 24, color: '#8b5cf6', range: 200, speed: 100, axis: 'x', label: 'Moving platform — rides you along.' },
+  spikes: { w: 80, h: 24, color: '#f97316', label: 'Spikes — ouch.' },
+  spring: { w: 44, h: 28, color: '#a3e635', power: 1100, label: 'Spring — bounces you sky-high.' },
+  key: { w: 26, h: 30, color: '#fbbf24', label: 'Key — opens every door in the room.' },
+  door: { w: 44, h: 76, color: '#b45309', label: 'Door — solid until you grab a key.' },
+  sign: { w: 34, h: 44, color: '#d6a35c', message: 'Hello!', label: 'Sign — shows a message when touched.' },
 };
 
 const TOOL_HINTS = {
   select: 'Click an object to select it, drag to move, Delete to remove.',
-  player: 'Click to place the player (only one per level).',
-  wall: 'Click to place a wall/platform.',
-  coin: 'Click to place a coin.',
-  enemy: 'Click to place a patrolling enemy.',
-  goal: 'Click to place the goal flag (only one per level).',
   eraser: 'Click an object to delete it.',
 };
 
@@ -33,28 +34,33 @@ const snap = (v) => Math.round(v / SNAP) * SNAP;
 
 const editor = {
   tool: 'select',
-  objects: [],
+  rooms: [{ name: 'Room 1', objects: [] }],
+  roomIndex: 0,
   selectedId: null,
   playing: false,
 };
 
+const curRoom = () => editor.rooms[editor.roomIndex];
+const objs = () => curRoom().objects;
+
 // ------------------------------------------------------------ persistence
 
-function validObj(o) {
-  return (
-    o &&
-    typeof o === 'object' &&
-    ['player', 'wall', 'coin', 'enemy', 'goal'].includes(o.type) &&
-    Number.isFinite(o.x) &&
-    Number.isFinite(o.y) &&
-    Number.isFinite(o.w) &&
-    Number.isFinite(o.h)
-  );
+function loadRooms() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return null;
+    return normalizeRooms(JSON.parse(raw));
+  } catch (e) {
+    return null;
+  }
 }
 
 function save() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(editor.objects));
+    localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({ app: 'flockbuilder-builder', version: 2, rooms: editor.rooms })
+    );
     const el = document.getElementById('save-state');
     if (el) {
       el.textContent = 'Saved ✓';
@@ -66,23 +72,13 @@ function save() {
   }
 }
 
-function load() {
-  try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (!raw) return false;
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return false;
-    editor.objects = arr.filter(validObj);
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
 // ------------------------------------------------------------------ setup
 
 const canvas = document.getElementById('board');
 const game = new Game({ width: WORLD_W, height: WORLD_H, canvas });
+
+// Custom sounds for builder games
+game.audio.define('boing', (a) => a.tone(180, 0.28, 'square', 0.3, 820));
 
 class EditorScene extends Scene {
   constructor(g) {
@@ -105,28 +101,44 @@ class EditorScene extends Scene {
       ctx.lineTo(WORLD_W, y + 0.5);
     }
     ctx.stroke();
-    // Enemy patrol ranges
+    // Enemy + platform paths
     ctx.setLineDash([6, 6]);
-    ctx.strokeStyle = 'rgba(239,68,68,0.5)';
     ctx.lineWidth = 2;
-    for (const o of editor.objects) {
-      if (o.type !== 'enemy') continue;
-      const y = o.y + o.h / 2;
-      ctx.beginPath();
-      ctx.moveTo(o.x, y);
-      ctx.lineTo(o.x + (o.range ?? 160), y);
-      ctx.stroke();
+    for (const o of objs()) {
+      if (o.type === 'enemy') {
+        ctx.strokeStyle = 'rgba(239,68,68,0.5)';
+        const y = o.y + o.h / 2;
+        ctx.beginPath();
+        ctx.moveTo(o.x, y);
+        ctx.lineTo(o.x + (o.range ?? 160), y);
+        ctx.stroke();
+      } else if (o.type === 'platform') {
+        ctx.strokeStyle = 'rgba(139,92,246,0.55)';
+        if ((o.axis || 'x') === 'x') {
+          const y = o.y + o.h / 2;
+          ctx.beginPath();
+          ctx.moveTo(o.x, y);
+          ctx.lineTo(o.x + (o.range ?? 200), y);
+          ctx.stroke();
+        } else {
+          const x = o.x + o.w / 2;
+          ctx.beginPath();
+          ctx.moveTo(x, o.y);
+          ctx.lineTo(x, o.y + (o.range ?? 200));
+          ctx.stroke();
+        }
+      }
     }
     ctx.setLineDash([]);
     // Type labels
     ctx.font = '10px system-ui, sans-serif';
     ctx.textAlign = 'left';
-    for (const o of editor.objects) {
+    for (const o of objs()) {
       ctx.fillStyle = 'rgba(226,232,240,0.75)';
       ctx.fillText(o.type, o.x + 2, o.y - 4 < 10 ? o.y + 12 : o.y - 4);
     }
     // Selection outline
-    const sel = editor.objects.find((o) => o.id === editor.selectedId);
+    const sel = objs().find((o) => o.id === editor.selectedId);
     if (sel) {
       ctx.strokeStyle = '#22d3ee';
       ctx.lineWidth = 3;
@@ -135,7 +147,8 @@ class EditorScene extends Scene {
     // Hint
     ctx.fillStyle = 'rgba(148,163,184,0.7)';
     ctx.font = '13px system-ui, sans-serif';
-    ctx.fillText(TOOL_HINTS[editor.tool] || '', 12, WORLD_H - 12);
+    const hint = TOOL_HINTS[editor.tool] || (DEFAULTS[editor.tool] ? DEFAULTS[editor.tool].label : '');
+    ctx.fillText(hint, 12, WORLD_H - 12);
     ctx.restore();
   }
 }
@@ -144,18 +157,18 @@ const editScene = new EditorScene(game);
 
 function refreshEditor() {
   editScene.clear();
-  for (const o of editor.objects) {
+  for (const o of objs()) {
     const s = new Sprite({
       x: o.x,
       y: o.y,
       w: o.w,
       h: o.h,
       color: o.color,
-      shape: o.type === 'coin' ? 'circle' : 'rect',
+      shape: o.type === 'coin' || o.type === 'key' ? 'circle' : 'rect',
     });
-    s.data.oid = o.id;
     editScene.add(s);
   }
+  renderRoomTabs();
   updateCounts();
 }
 
@@ -168,7 +181,7 @@ function afterEdit() {
 // ------------------------------------------------------------------ tools
 
 function byId(id) {
-  return editor.objects.find((o) => o.id === id) || null;
+  return objs().find((o) => o.id === id) || null;
 }
 
 function makeObj(type, cx, cy) {
@@ -185,39 +198,51 @@ function makeObj(type, cx, cy) {
   if (type === 'enemy') {
     o.range = d.range;
     o.speed = d.speed;
+  } else if (type === 'platform') {
+    o.range = d.range;
+    o.speed = d.speed;
+    o.axis = d.axis;
+  } else if (type === 'spring') {
+    o.power = d.power;
+  } else if (type === 'sign') {
+    o.message = d.message;
   }
   return o;
 }
 
+const SINGLETONS = ['player', 'goal'];
+
 function placeTool(type, x, y) {
-  if (type === 'player' || type === 'goal') {
-    const existing = editor.objects.find((o) => o.type === type);
+  if (SINGLETONS.includes(type)) {
+    const existing = objs().find((o) => o.type === type);
     if (existing) {
       existing.x = snap(x - existing.w / 2);
       existing.y = snap(y - existing.h / 2);
       editor.selectedId = existing.id;
     } else {
       const o = makeObj(type, x, y);
-      editor.objects.push(o);
+      objs().push(o);
       editor.selectedId = o.id;
     }
   } else {
     const o = makeObj(type, x, y);
-    editor.objects.push(o);
+    objs().push(o);
     editor.selectedId = o.id;
   }
   afterEdit();
 }
 
 function deleteObj(id) {
-  editor.objects = editor.objects.filter((o) => o.id !== id);
+  const room = curRoom();
+  room.objects = room.objects.filter((o) => o.id !== id);
   if (editor.selectedId === id) editor.selectedId = null;
   afterEdit();
 }
 
 function hitTest(p) {
-  for (let i = editor.objects.length - 1; i >= 0; i--) {
-    const o = editor.objects[i];
+  const list = objs();
+  for (let i = list.length - 1; i >= 0; i--) {
+    const o = list[i];
     if (p.x >= o.x && p.x <= o.x + o.w && p.y >= o.y && p.y <= o.y + o.h) return o;
   }
   return null;
@@ -303,17 +328,79 @@ toolbar.addEventListener('click', (e) => {
   for (const b of toolbar.querySelectorAll('[data-tool]')) {
     b.classList.toggle('active', b === btn);
   }
-  document.getElementById('tool-desc').textContent = DEFAULTS[editor.tool]
-    ? DEFAULTS[editor.tool].label
-    : TOOL_HINTS[editor.tool];
+  renderToolDesc();
 });
+
+function renderToolDesc() {
+  const el = document.getElementById('tool-desc');
+  el.textContent = TOOL_HINTS[editor.tool] || (DEFAULTS[editor.tool] ? DEFAULTS[editor.tool].label : '');
+}
 
 function updateCounts() {
   const el = document.getElementById('obj-count');
   if (el) {
-    const n = editor.objects.length;
-    el.textContent = n === 1 ? '1 object' : `${n} objects`;
+    const n = objs().length;
+    el.textContent = `${curRoom().name} · ` + (n === 1 ? '1 object' : `${n} objects`);
   }
+}
+
+// ---------------------------------------------------------- room tabs
+
+function renderRoomTabs() {
+  const bar = document.getElementById('room-tabs');
+  bar.innerHTML = '';
+  editor.rooms.forEach((room, i) => {
+    const tab = document.createElement('button');
+    tab.className = 'room-tab' + (i === editor.roomIndex ? ' active' : '');
+    const label = document.createElement('span');
+    label.textContent = room.name;
+    label.title = 'Double-click to rename';
+    tab.appendChild(label);
+    if (editor.rooms.length > 1) {
+      const x = document.createElement('span');
+      x.className = 'room-x';
+      x.textContent = '×';
+      x.title = 'Delete room';
+      x.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (editor.playing) return;
+        if (window.confirm(`Delete "${room.name}" and everything in it?`)) {
+          editor.rooms.splice(i, 1);
+          if (editor.roomIndex >= editor.rooms.length) editor.roomIndex = editor.rooms.length - 1;
+          editor.selectedId = null;
+          afterEdit();
+        }
+      });
+      tab.appendChild(x);
+    }
+    tab.addEventListener('click', () => {
+      if (editor.playing || i === editor.roomIndex) return;
+      editor.roomIndex = i;
+      editor.selectedId = null;
+      afterEdit();
+    });
+    tab.addEventListener('dblclick', () => {
+      if (editor.playing) return;
+      const name = window.prompt('Room name:', room.name);
+      if (name && name.trim()) {
+        room.name = name.trim().slice(0, 24);
+        afterEdit();
+      }
+    });
+    bar.appendChild(tab);
+  });
+  const add = document.createElement('button');
+  add.className = 'room-tab add';
+  add.textContent = '+ Room';
+  add.title = 'Add a room';
+  add.addEventListener('click', () => {
+    if (editor.playing) return;
+    editor.rooms.push({ name: `Room ${editor.rooms.length + 1}`, objects: [] });
+    editor.roomIndex = editor.rooms.length - 1;
+    editor.selectedId = null;
+    afterEdit();
+  });
+  bar.appendChild(add);
 }
 
 // ---------------------------------------------------------- properties
@@ -325,20 +412,24 @@ function renderProps() {
     box.innerHTML = '<p class="muted">Select an object on the canvas to edit its size, color, and behavior.</p>';
     return;
   }
+  const d = DEFAULTS[o.type];
   box.innerHTML = `
     <h3>${o.type}</h3>
-    <p class="muted small">${DEFAULTS[o.type].label}</p>
+    <p class="muted small">${d.label}</p>
     <div class="row"><label>X<input id="px" type="number" value="${o.x}" step="10"></label>
     <label>Y<input id="py" type="number" value="${o.y}" step="10}"></label></div>
     <div class="row"><label>Width<input id="pw" type="number" value="${o.w}" step="2" min="8"></label>
     <label>Height<input id="ph" type="number" value="${o.h}" step="2" min="8"></label></div>
     <label class="color">Color <input id="pc" type="color" value="${o.color}"></label>
     ${
-      o.type === 'enemy'
-        ? `<label>Patrol distance <span id="prv">${o.range}</span><input id="pr" type="range" min="0" max="600" step="10" value="${o.range}"></label>
-           <label>Patrol speed <span id="psv">${o.speed}</span><input id="ps" type="range" min="20" max="400" step="10" value="${o.speed}"></label>`
+      o.type === 'enemy' || o.type === 'platform'
+        ? `<label>${o.type === 'enemy' ? 'Patrol' : 'Travel'} distance <span id="prv">${o.range}</span><input id="pr" type="range" min="0" max="600" step="10" value="${o.range}"></label>
+           <label>Speed <span id="psv">${o.speed}</span><input id="ps" type="range" min="20" max="400" step="10" value="${o.speed}"></label>`
         : ''
     }
+    ${o.type === 'platform' ? `<label>Direction <select id="paxis"><option value="x">Horizontal</option><option value="y">Vertical</option></select></label>` : ''}
+    ${o.type === 'spring' ? `<label>Bounce power <span id="ppv">${o.power}</span><input id="pp" type="range" min="600" max="1600" step="50" value="${o.power}"></label>` : ''}
+    ${o.type === 'sign' ? `<label>Message<input id="pmsg" type="text" maxlength="120" value="${String(o.message || '').replace(/"/g, '&quot;')}"></label>` : ''}
     <button id="pdel" class="danger">Delete object</button>
   `;
   const num = (id, key) => {
@@ -360,16 +451,32 @@ function renderProps() {
     refreshEditor();
     save();
   });
-  if (o.type === 'enemy') {
-    document.getElementById('pr').addEventListener('input', (e) => {
-      o.range = parseFloat(e.target.value);
-      document.getElementById('prv').textContent = o.range;
+  const rangeSpeed = (rid, rvid, key) => {
+    const el = document.getElementById(rid);
+    if (!el) return;
+    el.addEventListener('input', (e) => {
+      o[key] = parseFloat(e.target.value);
+      document.getElementById(rvid).textContent = o[key];
       refreshEditor();
       save();
     });
-    document.getElementById('ps').addEventListener('input', (e) => {
-      o.speed = parseFloat(e.target.value);
-      document.getElementById('psv').textContent = o.speed;
+  };
+  rangeSpeed('pr', 'prv', 'range');
+  rangeSpeed('ps', 'psv', 'speed');
+  rangeSpeed('pp', 'ppv', 'power');
+  const axisEl = document.getElementById('paxis');
+  if (axisEl) {
+    axisEl.value = o.axis || 'x';
+    axisEl.addEventListener('change', (e) => {
+      o.axis = e.target.value;
+      refreshEditor();
+      save();
+    });
+  }
+  const msgEl = document.getElementById('pmsg');
+  if (msgEl) {
+    msgEl.addEventListener('input', (e) => {
+      o.message = e.target.value.slice(0, 120);
       save();
     });
   }
@@ -380,17 +487,22 @@ function renderProps() {
 
 const playBtn = document.getElementById('play-btn');
 
-function startPlay() {
+function startPlay(roomIndex) {
   if (editor.playing) return;
   editor.playing = true;
   document.body.classList.add('playing');
   playBtn.innerHTML = '⏹ Stop';
   playBtn.classList.add('stop');
-  const scene = new PlayScene(game, editor.objects);
+  const scene = new PlayScene(game, editor.rooms, roomIndex);
   scene.onRestart = () => {
     game.popScene();
     editor.playing = false;
-    startPlay();
+    startPlay(roomIndex);
+  };
+  scene.onAdvance = () => {
+    game.popScene();
+    editor.playing = false;
+    startPlay(roomIndex + 1);
   };
   scene.onStop = () => stopPlay();
   game.pushScene(scene);
@@ -409,7 +521,7 @@ function stopPlay() {
 
 playBtn.addEventListener('click', () => {
   if (editor.playing) stopPlay();
-  else startPlay();
+  else startPlay(editor.roomIndex);
 });
 
 // -------------------------------------------------- level actions
@@ -418,58 +530,102 @@ function wall(x, y, w, h, color) {
   return { id: nid(), type: 'wall', x, y, w, h, color: color || DEFAULTS.wall.color };
 }
 
-function defaultObjects() {
-  return [
-    wall(0, WORLD_H - 40, WORLD_W, 40),
-    { ...makeObj('player', 90, WORLD_H - 120), x: 60, y: WORLD_H - 40 - 46 },
-  ];
-}
-
-function sampleObjects() {
-  const objs = [];
-  objs.push(wall(0, WORLD_H - 40, WORLD_W, 40));
-  objs.push(wall(120, 400, 150, 24));
-  objs.push(wall(350, 315, 150, 24));
-  objs.push(wall(580, 400, 150, 24));
-  objs.push(wall(770, 300, 130, 24));
+function defaultRooms() {
   const p = makeObj('player', 0, 0);
   p.x = 60;
   p.y = WORLD_H - 40 - p.h;
-  objs.push(p);
-  for (const [cx, cy] of [[195, 360], [425, 275], [655, 360], [835, 260], [500, 180]]) {
-    const c = makeObj('coin', cx, cy);
-    objs.push(c);
+  return [{ name: 'Room 1', objects: [wall(0, WORLD_H - 40, WORLD_W, 40), p] }];
+}
+
+function sampleRooms() {
+  // Room 1 — basics: platforms, spring, coins, enemy, sign, goal
+  const r1 = [];
+  r1.push(wall(0, WORLD_H - 40, WORLD_W, 40));
+  r1.push(wall(150, 410, 150, 24));
+  r1.push(wall(380, 330, 150, 24));
+  r1.push(wall(620, 410, 150, 24));
+  const p1 = makeObj('player', 0, 0);
+  p1.x = 60;
+  p1.y = WORLD_H - 40 - p1.h;
+  r1.push(p1);
+  const spr = makeObj('spring', 0, 0);
+  spr.x = 300;
+  spr.y = WORLD_H - 40 - spr.h;
+  r1.push(spr);
+  for (const [cx, cy] of [[225, 370], [455, 290], [695, 370], [500, 200]]) {
+    r1.push(makeObj('coin', cx, cy));
   }
   const e1 = makeObj('enemy', 0, 0);
-  e1.x = 300;
+  e1.x = 480;
   e1.y = WORLD_H - 40 - e1.h;
-  e1.range = 180;
-  objs.push(e1);
-  const e2 = makeObj('enemy', 0, 0);
-  e2.x = 620;
-  e2.y = WORLD_H - 40 - e2.h;
-  e2.range = 110;
-  e2.speed = 180;
-  objs.push(e2);
-  const g = makeObj('goal', 0, 0);
-  g.x = 800;
-  g.y = 300 - g.h;
-  objs.push(g);
-  return objs;
+  e1.range = 120;
+  r1.push(e1);
+  const g1 = makeObj('goal', 0, 0);
+  g1.x = 660;
+  g1.y = 410 - g1.h;
+  r1.push(g1);
+  const s1 = makeObj('sign', 0, 0);
+  s1.x = 120;
+  s1.y = WORLD_H - 40 - s1.h;
+  s1.message = 'Arrows move, Space jumps. Grab coins, dodge red guys, touch the flag!';
+  r1.push(s1);
+
+  // Room 2 — keys, doors, spikes, moving platforms
+  const r2 = [];
+  r2.push(wall(0, WORLD_H - 40, WORLD_W, 40));
+  r2.push(wall(0, 300, 180, 24));
+  r2.push(wall(780, 300, 180, 24));
+  const p2 = makeObj('player', 0, 0);
+  p2.x = 60;
+  p2.y = 300 - p2.h;
+  r2.push(p2);
+  const plat = makeObj('platform', 0, 0);
+  plat.x = 380;
+  plat.y = 380;
+  plat.range = 200;
+  plat.axis = 'x';
+  r2.push(plat);
+  const key = makeObj('key', 0, 0);
+  key.x = 850;
+  key.y = 300 - key.h - 6;
+  r2.push(key);
+  const door = makeObj('door', 0, 0);
+  door.x = 700;
+  door.y = WORLD_H - 40 - door.h;
+  r2.push(door);
+  const sp = makeObj('spikes', 0, 0);
+  sp.x = 420;
+  sp.y = WORLD_H - 40 - sp.h;
+  sp.w = 160;
+  r2.push(sp);
+  const g2 = makeObj('goal', 0, 0);
+  g2.x = 880;
+  g2.y = WORLD_H - 40 - g2.h;
+  r2.push(g2);
+  const s2 = makeObj('sign', 0, 0);
+  s2.x = 120;
+  s2.y = 300 - s2.h;
+  s2.message = 'Grab the key to open the door. Watch the spikes!';
+  r2.push(s2);
+
+  return [
+    { name: 'Room 1', objects: r1 },
+    { name: 'Room 2', objects: r2 },
+  ];
 }
 
 document.getElementById('btn-sample').addEventListener('click', () => {
   if (editor.playing) return;
-  editor.objects = sampleObjects();
+  editor.rooms = sampleRooms();
+  editor.roomIndex = 0;
   editor.selectedId = null;
   afterEdit();
 });
 
 document.getElementById('btn-clear').addEventListener('click', () => {
   if (editor.playing) return;
-  if (editor.objects.length === 0) return;
-  if (window.confirm('Clear the whole level?')) {
-    editor.objects = [];
+  if (window.confirm(`Clear "${curRoom().name}"?`)) {
+    curRoom().objects = [];
     editor.selectedId = null;
     afterEdit();
   }
@@ -477,7 +633,7 @@ document.getElementById('btn-clear').addEventListener('click', () => {
 
 document.getElementById('btn-export').addEventListener('click', () => {
   const blob = new Blob(
-    [JSON.stringify({ app: 'flockbuilder-builder', version: 1, objects: editor.objects }, null, 2)],
+    [JSON.stringify({ app: 'flockbuilder-builder', version: 2, rooms: editor.rooms }, null, 2)],
     { type: 'application/json' }
   );
   const a = document.createElement('a');
@@ -499,12 +655,10 @@ importInput.addEventListener('change', () => {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const data = JSON.parse(reader.result);
-      const arr = Array.isArray(data) ? data : data.objects;
-      if (!Array.isArray(arr)) throw new Error('bad file');
-      const objs = arr.filter(validObj);
-      if (objs.length === 0) throw new Error('empty');
-      editor.objects = objs;
+      const rooms = normalizeRooms(JSON.parse(reader.result));
+      if (!rooms) throw new Error('bad file');
+      editor.rooms = rooms;
+      editor.roomIndex = 0;
       editor.selectedId = null;
       afterEdit();
     } catch (err) {
@@ -517,11 +671,16 @@ importInput.addEventListener('change', () => {
 
 // ------------------------------------------------------------------ boot
 
-if (!load() || editor.objects.length === 0) {
-  editor.objects = defaultObjects();
+const loaded = loadRooms();
+if (loaded && loaded.length > 0) {
+  editor.rooms = loaded;
+} else {
+  editor.rooms = defaultRooms();
   save();
 }
+editor.roomIndex = 0;
 refreshEditor();
 renderProps();
+renderToolDesc();
 game.pushScene(editScene);
 game.start();

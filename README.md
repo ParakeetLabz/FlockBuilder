@@ -75,4 +75,5 @@ Read [docs/getting-started.md](docs/getting-started.md) for the full API tour.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+FlockBuilder License v1.0 — mod it and share your mods, just don't copy it
+wholesale and claim you made it. See [LICENSE](LICENSE).

@@ -108,6 +108,22 @@ game.particles.emit(x, y, {
 scene.add(new Text('Score: 0', { x: 16, y: 16, font: 'bold 24px system-ui', outline: '#000' }));
 ```
 
+## FlockBuilder Studio (no code at all)
+
+Prefer not to write code? Open **FlockBuilder Studio** (`builder/index.html`,
+or the 🎮 button on the site): a visual game maker where you build
+multi-room platformers entirely with clicks.
+
+- **Toolbar** — Player, Wall, Coin, Enemy, Goal, moving Platform, Spikes,
+  Spring, Key, Door, and Sign. Click to place, drag to move, Delete to remove.
+- **Properties panel** — tweak size, color, enemy patrol distance/speed,
+  platform travel/speed/direction, spring bounce power, and sign messages.
+- **Rooms** — build several rooms; the goal flag advances to the next one.
+  Double-click a room tab to rename it.
+- **▶ Play** — test instantly in the same canvas. ESC returns to the editor.
+- **Save/Export/Import** — levels auto-save in your browser; export them as
+  JSON to share.
+
 ## Next steps
 
 - Read the demo source: `examples/flock-game/game.js` — a complete game in ~300 lines.

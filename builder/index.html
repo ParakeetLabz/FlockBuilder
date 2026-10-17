@@ -38,27 +38,42 @@
   #play-btn.stop:hover { background: #fca5a5; }
   main { display: flex; flex: 1; min-height: 0; }
   #toolbar {
-    width: 132px; padding: 14px 10px; border-right: 1px solid #1e293b;
-    display: flex; flex-direction: column; gap: 8px;
+    width: 140px; padding: 14px 10px; border-right: 1px solid #1e293b;
+    display: flex; flex-direction: column; gap: 6px; overflow-y: auto;
   }
   #toolbar button {
     display: flex; align-items: center; gap: 8px;
-    text-align: left; font-size: 13px; padding: 9px 10px;
+    text-align: left; font-size: 12.5px; padding: 8px 9px;
   }
   #toolbar button .dot {
     width: 12px; height: 12px; border-radius: 4px; flex-shrink: 0;
   }
   #toolbar button.active { border-color: #22d3ee; background: #164e63; }
   #tool-desc { font-size: 11px; color: #64748b; margin-top: 4px; line-height: 1.4; }
+  #center { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #room-tabs {
+    display: flex; gap: 6px; padding: 10px 18px 0; flex-wrap: wrap;
+  }
+  .room-tab {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; padding: 6px 12px; border-radius: 8px 8px 0 0;
+    border-bottom: none;
+  }
+  .room-tab.active { border-color: #22d3ee; background: #0f172a; color: #22d3ee; font-weight: 600; }
+  .room-tab .room-x {
+    color: #64748b; font-size: 15px; line-height: 1; padding: 0 2px;
+  }
+  .room-tab .room-x:hover { color: #f87171; }
+  .room-tab.add { border-style: dashed; color: #64748b; }
   #stage {
     flex: 1; display: flex; align-items: center; justify-content: center;
-    padding: 18px; position: relative; min-width: 0;
+    padding: 14px 18px 18px; position: relative; min-width: 0; min-height: 0;
   }
   #board-wrap { position: relative; max-width: 100%; }
   canvas {
     border-radius: 12px; border: 1px solid #1e293b;
     box-shadow: 0 0 60px rgba(34, 211, 238, 0.08);
-    max-width: 100%; max-height: calc(100vh - 220px);
+    max-width: 100%; max-height: calc(100vh - 270px);
     touch-action: none; cursor: crosshair; display: block;
     background: #0b1020;
   }
@@ -69,7 +84,7 @@
     display: none; pointer-events: none; white-space: nowrap;
   }
   body.playing #mode-banner { display: block; }
-  body.playing #toolbar, body.playing #props { opacity: 0.35; pointer-events: none; }
+  body.playing #toolbar, body.playing #props, body.playing #room-tabs { opacity: 0.35; pointer-events: none; }
   body.playing canvas { cursor: default; }
   #props {
     width: 230px; padding: 16px 14px; border-left: 1px solid #1e293b;
@@ -82,7 +97,7 @@
   #props label { display: block; font-size: 13px; margin: 10px 0 4px; color: #94a3b8; }
   #props .row { display: flex; gap: 8px; }
   #props .row label { flex: 1; }
-  #props input[type="number"] {
+  #props input[type="number"], #props input[type="text"], #props select {
     width: 100%; background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
     border-radius: 6px; padding: 6px 8px; font-size: 13px; margin-top: 2px;
   }
@@ -97,7 +112,7 @@
   .back:hover { text-decoration: underline; }
   @media (max-width: 900px) {
     #props { display: none; }
-    #toolbar { width: 104px; }
+    #toolbar { width: 108px; }
   }
 </style>
 </head>
@@ -109,10 +124,10 @@
     <span id="obj-count" class="sub"></span>
     <span id="save-state"></span>
     <div class="actions">
-      <button id="btn-sample" title="Load an example level">Sample</button>
-      <button id="btn-export" title="Download this level as JSON">Export</button>
-      <button id="btn-import" title="Load a level from a JSON file">Import</button>
-      <button id="btn-clear" title="Remove everything">Clear</button>
+      <button id="btn-sample" title="Load an example game (2 rooms)">Sample</button>
+      <button id="btn-export" title="Download this game as JSON">Export</button>
+      <button id="btn-import" title="Load a game from a JSON file">Import</button>
+      <button id="btn-clear" title="Remove everything in this room">Clear</button>
     </div>
     <button id="play-btn">▶ Play</button>
   </header>
@@ -124,14 +139,23 @@
       <button data-tool="coin"><span class="dot" style="background:#fde047;border-radius:50%"></span>Coin</button>
       <button data-tool="enemy"><span class="dot" style="background:#ef4444"></span>Enemy</button>
       <button data-tool="goal"><span class="dot" style="background:#22c55e"></span>Goal</button>
+      <button data-tool="platform"><span class="dot" style="background:#8b5cf6"></span>Platform</button>
+      <button data-tool="spikes"><span class="dot" style="background:#f97316"></span>Spikes</button>
+      <button data-tool="spring"><span class="dot" style="background:#a3e635"></span>Spring</button>
+      <button data-tool="key"><span class="dot" style="background:#fbbf24;border-radius:50%"></span>Key</button>
+      <button data-tool="door"><span class="dot" style="background:#b45309"></span>Door</button>
+      <button data-tool="sign"><span class="dot" style="background:#d6a35c"></span>Sign</button>
       <button data-tool="eraser">🧽 Eraser</button>
-      <p id="tool-desc">Click an object to select it, drag to move, Delete to remove.</p>
+      <p id="tool-desc"></p>
       <p style="margin-top:auto"><a class="back" href="../index.html">← FlockBuilder</a></p>
     </aside>
-    <div id="stage">
-      <div id="board-wrap">
-        <canvas id="board" width="960" height="540"></canvas>
-        <div id="mode-banner">▶ Playing — ESC returns to the editor</div>
+    <div id="center">
+      <div id="room-tabs"></div>
+      <div id="stage">
+        <div id="board-wrap">
+          <canvas id="board" width="960" height="540"></canvas>
+          <div id="mode-banner">▶ Playing — ESC returns to the editor</div>
+        </div>
       </div>
     </div>
     <aside id="props">
