@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlockBuilder Studio — build a game with no code</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #020617; color: #e2e8f0;
+    font-family: system-ui, -apple-system, sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 20px; border-bottom: 1px solid #1e293b;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 20px; }
+  header h1 span { color: #22d3ee; }
+  header .sub { color: #64748b; font-size: 13px; }
+  header .spacer { flex: 1; }
+  #save-state { color: #475569; font-size: 13px; min-width: 70px; text-align: right; }
+  #save-state.flash { color: #4ade80; }
+  button {
+    font-family: inherit; cursor: pointer; border-radius: 8px;
+    border: 1px solid #334155; background: #0f172a; color: #e2e8f0;
+    padding: 8px 14px; font-size: 14px;
+  }
+  button:hover { border-color: #22d3ee; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  #play-btn {
+    background: #22d3ee; border-color: #22d3ee; color: #020617;
+    font-weight: 700; font-size: 15px; padding: 9px 26px;
+  }
+  #play-btn:hover { background: #67e8f9; }
+  #play-btn.stop { background: #f87171; border-color: #f87171; }
+  #play-btn.stop:hover { background: #fca5a5; }
+  main { display: flex; flex: 1; min-height: 0; }
+  #toolbar {
+    width: 132px; padding: 14px 10px; border-right: 1px solid #1e293b;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  #toolbar button {
+    display: flex; align-items: center; gap: 8px;
+    text-align: left; font-size: 13px; padding: 9px 10px;
+  }
+  #toolbar button .dot {
+    width: 12px; height: 12px; border-radius: 4px; flex-shrink: 0;
+  }
+  #toolbar button.active { border-color: #22d3ee; background: #164e63; }
+  #tool-desc { font-size: 11px; color: #64748b; margin-top: 4px; line-height: 1.4; }
+  #stage {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 18px; position: relative; min-width: 0;
+  }
+  #board-wrap { position: relative; max-width: 100%; }
+  canvas {
+    border-radius: 12px; border: 1px solid #1e293b;
+    box-shadow: 0 0 60px rgba(34, 211, 238, 0.08);
+    max-width: 100%; max-height: calc(100vh - 220px);
+    touch-action: none; cursor: crosshair; display: block;
+    background: #0b1020;
+  }
+  #mode-banner {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    background: rgba(34, 211, 238, 0.92); color: #020617;
+    font-weight: 700; font-size: 13px; padding: 6px 16px; border-radius: 20px;
+    display: none; pointer-events: none; white-space: nowrap;
+  }
+  body.playing #mode-banner { display: block; }
+  body.playing #toolbar, body.playing #props { opacity: 0.35; pointer-events: none; }
+  body.playing canvas { cursor: default; }
+  #props {
+    width: 230px; padding: 16px 14px; border-left: 1px solid #1e293b;
+    overflow-y: auto;
+  }
+  #props h2 { font-size: 15px; margin-bottom: 10px; }
+  #props h3 { font-size: 16px; color: #22d3ee; text-transform: capitalize; margin-bottom: 2px; }
+  #props .muted { color: #64748b; font-size: 13px; }
+  #props .small { font-size: 12px; margin-bottom: 12px; }
+  #props label { display: block; font-size: 13px; margin: 10px 0 4px; color: #94a3b8; }
+  #props .row { display: flex; gap: 8px; }
+  #props .row label { flex: 1; }
+  #props input[type="number"] {
+    width: 100%; background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+    border-radius: 6px; padding: 6px 8px; font-size: 13px; margin-top: 2px;
+  }
+  #props input[type="color"] { width: 100%; height: 36px; border: none; background: none; cursor: pointer; padding: 0; }
+  #props input[type="range"] { width: 100%; margin-top: 4px; accent-color: #22d3ee; }
+  #props .danger {
+    margin-top: 16px; width: 100%; border-color: #7f1d1d; color: #fca5a5;
+  }
+  #props .danger:hover { border-color: #ef4444; background: #450a0a; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .back { color: #22d3ee; text-decoration: none; font-size: 13px; }
+  .back:hover { text-decoration: underline; }
+  @media (max-width: 900px) {
+    #props { display: none; }
+    #toolbar { width: 104px; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>🐦 Flock<span>Builder</span> Studio</h1>
+    <span class="sub">build a game with zero code</span>
+    <span class="spacer"></span>
+    <span id="obj-count" class="sub"></span>
+    <span id="save-state"></span>
+    <div class="actions">
+      <button id="btn-sample" title="Load an example level">Sample</button>
+      <button id="btn-export" title="Download this level as JSON">Export</button>
+      <button id="btn-import" title="Load a level from a JSON file">Import</button>
+      <button id="btn-clear" title="Remove everything">Clear</button>
+    </div>
+    <button id="play-btn">▶ Play</button>
+  </header>
+  <main>
+    <aside id="toolbar">
+      <button data-tool="select" class="active">✋ Select</button>
+      <button data-tool="player"><span class="dot" style="background:#22d3ee"></span>Player</button>
+      <button data-tool="wall"><span class="dot" style="background:#475569"></span>Wall</button>
+      <button data-tool="coin"><span class="dot" style="background:#fde047;border-radius:50%"></span>Coin</button>
+      <button data-tool="enemy"><span class="dot" style="background:#ef4444"></span>Enemy</button>
+      <button data-tool="goal"><span class="dot" style="background:#22c55e"></span>Goal</button>
+      <button data-tool="eraser">🧽 Eraser</button>
+      <p id="tool-desc">Click an object to select it, drag to move, Delete to remove.</p>
+      <p style="margin-top:auto"><a class="back" href="../index.html">← FlockBuilder</a></p>
+    </aside>
+    <div id="stage">
+      <div id="board-wrap">
+        <canvas id="board" width="960" height="540"></canvas>
+        <div id="mode-banner">▶ Playing — ESC returns to the editor</div>
+      </div>
+    </div>
+    <aside id="props">
+      <h2>Properties</h2>
+      <div id="props-body"></div>
+    </aside>
+  </main>
+  <input type="file" id="import-file" accept=".json,application/json" style="display:none">
+  <script type="module" src="./builder.js"></script>
+</body>
+</html>
