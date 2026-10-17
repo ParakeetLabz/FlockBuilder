@@ -20,7 +20,7 @@ export const WORLD_H = 540;
 // Every object type the builder can place.
 export const OBJECT_TYPES = [
   'player', 'wall', 'coin', 'enemy', 'goal',
-  'platform', 'spikes', 'spring', 'key', 'door', 'sign', 'actor',
+  'platform', 'spikes', 'spring', 'key', 'door', 'sign', 'actor', 'label',
 ];
 
 export function validObj(o) {
@@ -616,6 +616,21 @@ export class Actor extends Sprite {
     this._destroying = false;
     this.solids = [];
     this.grounded = false;
+    // Custom sprite image (data URL), uploaded in the builder.
+    this.imageSrc = o.image || null;
+    this._img = this.imageSrc ? Actor.imageFor(this.imageSrc) : null;
+  }
+
+  // Shared cache so one upload doesn't create an Image per actor.
+  static _imageCache = new Map();
+  static imageFor(src) {
+    let img = Actor._imageCache.get(src);
+    if (!img && typeof Image !== 'undefined') {
+      img = new Image();
+      img.src = src;
+      Actor._imageCache.set(src, img);
+    }
+    return img || null;
   }
 
   update(dt, game) {
@@ -717,6 +732,9 @@ export class Actor extends Sprite {
       case 'spawn':
         scene.spawnObject(rule.spawn || 'coin', this.cx, this.cy);
         break;
+      case 'fx':
+        scene.emitEffect(rule.fx || '', this.cx, this.cy);
+        break;
       default:
         break;
     }
@@ -729,18 +747,263 @@ export class Actor extends Sprite {
     const w = this.size.x;
     const h = this.size.y;
     ctx.save();
-    // Body
-    ctx.fillStyle = this.color;
-    rr(ctx, x, y, w, h, 10);
-    ctx.fill();
-    // Gear badge = "this one runs on rules"
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.font = `bold ${Math.min(18, h * 0.45)}px system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('⚙', x + w / 2, y + h / 2 + 1);
+    const img = this._img;
+    if (img && img.complete && img.naturalWidth > 0) {
+      ctx.drawImage(img, x, y, w, h);
+    } else {
+      // Body
+      ctx.fillStyle = this.color;
+      rr(ctx, x, y, w, h, 10);
+      ctx.fill();
+      // Gear badge = "this one runs on rules"
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = `bold ${Math.min(18, h * 0.45)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('⚙', x + w / 2, y + h / 2 + 1);
+    }
     ctx.restore();
   }
+}
+
+// ------------------------------------------------- PLC (Parakeet Logic Code)
+// FlockBuilder's own scripting language: a tiny line-based language that
+// compiles 1:1 to the visual rules engine. "PLC Visual" (the WHEN/THEN
+// dropdown editor) and PLC text are two views of the same rules.
+//
+//   when start then say "Go!"
+//   when touch player then score 5
+//   when touch player then destroy self
+//   when destroyed then sound coin
+//   when timer 1.6 then jump 750
+//   when key E then move right 200
+//   when key Space then teleport 700 100
+//   when timer 0.5 then spawn enemy
+//   when destroyed then fx poof
+
+const PLC_DIRS = ['left', 'right', 'up', 'down', 'toward', 'away'];
+const PLC_SPAWNS = ['coin', 'enemy'];
+
+function plcKeyToCode(word) {
+  if (/^[a-z]$/i.test(word)) return 'Key' + word.toUpperCase();
+  const w = word.toLowerCase();
+  if (w === 'space') return 'Space';
+  if (w === 'up') return 'ArrowUp';
+  if (w === 'down') return 'ArrowDown';
+  if (w === 'left') return 'ArrowLeft';
+  if (w === 'right') return 'ArrowRight';
+  return word; // assume a raw KeyboardEvent.code like ShiftLeft
+}
+
+function plcCodeToKey(code) {
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  const m = { Space: 'Space', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right' };
+  return m[code] || code;
+}
+
+function plcParseTrigger(src, lineNo, errors) {
+  const parts = src.trim().split(/\s+/);
+  const head = (parts[0] || '').toLowerCase();
+  if (head === 'start' && parts.length === 1) return { trigger: 'start' };
+  if (head === 'touch' && parts.length === 2 && parts[1].toLowerCase() === 'player') {
+    return { trigger: 'touch' };
+  }
+  if (head === 'destroyed' && parts.length === 1) return { trigger: 'destroyed' };
+  if (head === 'key' && parts.length === 2) {
+    return { trigger: 'key', key: plcKeyToCode(parts[1]) };
+  }
+  if (head === 'timer' && parts.length === 2) {
+    const seconds = parseFloat(parts[1]);
+    if (!(seconds > 0)) {
+      errors.push({ line: lineNo, message: `timer needs seconds > 0, got "${parts[1]}"` });
+      return null;
+    }
+    return { trigger: 'timer', seconds };
+  }
+  errors.push({
+    line: lineNo,
+    message: `unknown trigger "${src}" — try: start, touch player, destroyed, key E, timer 1.5`,
+  });
+  return null;
+}
+
+function plcParseAction(src, lineNo, errors) {
+  const m = src.trim().match(/^([a-z]+)\b\s*(.*)$/i);
+  if (!m) {
+    errors.push({ line: lineNo, message: `unknown action "${src}"` });
+    return null;
+  }
+  const head = m[1].toLowerCase();
+  const rest = m[2].trim();
+  const num = (s, what) => {
+    const v = parseFloat(s);
+    if (!Number.isFinite(v)) {
+      errors.push({ line: lineNo, message: `${what} needs a number, got "${s}"` });
+      return null;
+    }
+    return v;
+  };
+  switch (head) {
+    case 'say': {
+      if (!rest) {
+        errors.push({ line: lineNo, message: 'say needs a message, e.g. say "Hi!"' });
+        return null;
+      }
+      const q = rest.match(/^"(.*)"$/);
+      return { action: 'message', text: q ? q[1] : rest };
+    }
+    case 'score': {
+      const amount = num(rest, 'score');
+      return amount === null ? null : { action: 'score', amount: Math.round(amount) };
+    }
+    case 'destroy':
+      if (rest.toLowerCase() !== 'self') {
+        errors.push({ line: lineNo, message: 'did you mean "destroy self"?' });
+        return null;
+      }
+      return { action: 'destroy' };
+    case 'jump': {
+      const power = num(rest, 'jump');
+      return power === null ? null : { action: 'jump', power };
+    }
+    case 'move': {
+      const p = rest.split(/\s+/);
+      const dir = (p[0] || '').toLowerCase();
+      if (!PLC_DIRS.includes(dir)) {
+        errors.push({ line: lineNo, message: `move needs a direction (${PLC_DIRS.join('/')}), got "${p[0] || ''}"` });
+        return null;
+      }
+      const speed = num(p[1] || '', 'move');
+      return speed === null ? null : { action: 'move', direction: dir, speed };
+    }
+    case 'sound':
+      if (!rest) {
+        errors.push({ line: lineNo, message: 'sound needs a name, e.g. sound coin' });
+        return null;
+      }
+      return { action: 'sound', sound: rest.split(/\s+/)[0].toLowerCase() };
+    case 'win':
+      return { action: 'win' };
+    case 'lose':
+      return { action: 'lose' };
+    case 'teleport': {
+      const p = rest.split(/\s+/);
+      const tx = num(p[0] || '', 'teleport x');
+      const ty = num(p[1] || '', 'teleport y');
+      return tx === null || ty === null ? null : { action: 'teleport', tx, ty };
+    }
+    case 'spawn': {
+      const kind = rest.toLowerCase().split(/\s+/)[0];
+      if (!PLC_SPAWNS.includes(kind)) {
+        errors.push({ line: lineNo, message: `spawn needs ${PLC_SPAWNS.join('/')} , got "${rest}"` });
+        return null;
+      }
+      return { action: 'spawn', spawn: kind };
+    }
+    case 'fx':
+      if (!rest) {
+        errors.push({ line: lineNo, message: 'fx needs an effect name, e.g. fx poof' });
+        return null;
+      }
+      return { action: 'fx', fx: rest.split(/\s+/)[0] };
+    default:
+      errors.push({
+        line: lineNo,
+        message: `unknown action "${head}" — try: say, score, destroy self, jump, move, sound, win, lose, teleport, spawn, fx`,
+      });
+      return null;
+  }
+}
+
+// Parses PLC source into { rules, errors }. errors is [{ line, message }].
+export function parsePLC(text) {
+  const rules = [];
+  const errors = [];
+  String(text || '')
+    .split('\n')
+    .forEach((raw, idx) => {
+      const lineNo = idx + 1;
+      const line = raw.replace(/#.*$/, '').trim();
+      if (!line) return;
+      const m = line.match(/^when\s+(.+?)\s+then\s+(.+)$/i);
+      if (!m) {
+        errors.push({ line: lineNo, message: 'each rule looks like: when <trigger> then <action>' });
+        return;
+      }
+      const t = plcParseTrigger(m[1], lineNo, errors);
+      if (!t) return;
+      const a = plcParseAction(m[2], lineNo, errors);
+      if (!a) return;
+      rules.push({ ...t, ...a });
+    });
+  return { rules, errors };
+}
+
+// Serializes rules back to PLC text.
+export function rulesToPLC(rules) {
+  return (rules || [])
+    .map((r) => {
+      let t = '';
+      switch (r.trigger) {
+        case 'start':
+          t = 'when start';
+          break;
+        case 'touch':
+          t = 'when touch player';
+          break;
+        case 'destroyed':
+          t = 'when destroyed';
+          break;
+        case 'key':
+          t = `when key ${plcCodeToKey(r.key || 'Space')}`;
+          break;
+        case 'timer':
+          t = `when timer ${r.seconds ?? 2}`;
+          break;
+        default:
+          t = 'when start';
+      }
+      let a = '';
+      switch (r.action) {
+        case 'message':
+          a = `say "${r.text || ''}"`;
+          break;
+        case 'score':
+          a = `score ${r.amount ?? 1}`;
+          break;
+        case 'destroy':
+          a = 'destroy self';
+          break;
+        case 'jump':
+          a = `jump ${r.power ?? 600}`;
+          break;
+        case 'move':
+          a = `move ${r.direction || 'right'} ${r.speed ?? 200}`;
+          break;
+        case 'sound':
+          a = `sound ${r.sound || 'blip'}`;
+          break;
+        case 'win':
+          a = 'win';
+          break;
+        case 'lose':
+          a = 'lose';
+          break;
+        case 'teleport':
+          a = `teleport ${r.tx ?? 0} ${r.ty ?? 0}`;
+          break;
+        case 'spawn':
+          a = `spawn ${r.spawn || 'coin'}`;
+          break;
+        case 'fx':
+          a = `fx ${r.fx || ''}`;
+          break;
+        default:
+          a = 'say "?"';
+      }
+      return `${t} then ${a}`;
+    })
+    .join('\n');
 }
 
 // ---------------------------------------------------------------- Cloud ---
@@ -776,11 +1039,13 @@ export class Cloud extends Entity {
 // Supports multiple rooms: the goal flag advances to the next room.
 
 export class PlayScene extends Scene {
-  constructor(game, rooms, startIndex = 0) {
+  constructor(game, rooms, startIndex = 0, effects = {}) {
     super(game);
     this.bg = '#7dd3fc';
     this.rooms = rooms;
     this.roomIndex = startIndex;
+    this.effects = effects || {};
+    this.debug = false;
     this.roomName = rooms[startIndex] ? rooms[startIndex].name || `Room ${startIndex + 1}` : '';
     this.bannerT = 2.2; // "Room N" intro banner
     this.state = 'play'; // play | win | dead
@@ -796,6 +1061,7 @@ export class PlayScene extends Scene {
     this.doors = [];
     this.signs = [];
     this.actors = [];
+    this.labels = [];
     this.goal = null;
     this.onRestart = null; // replay this room
     this.onAdvance = null; // go to next room
@@ -847,6 +1113,15 @@ export class PlayScene extends Scene {
         case 'actor':
           this.actors.push(this.add(new Actor(o)));
           break;
+        case 'label':
+          this.labels.push({
+            x: o.x ?? 10,
+            y: o.y ?? 10,
+            text: o.text ?? 'Label',
+            size: o.size ?? 20,
+            color: o.color ?? '#ffffff',
+          });
+          break;
         case 'goal':
           this.goal = this.add(new Goal(o));
           break;
@@ -890,6 +1165,23 @@ export class PlayScene extends Scene {
       this.coins.push(c);
       this.coinsTotal++;
     }
+  }
+
+  // Emit a named particle effect (designed in the Particle Editor).
+  emitEffect(name, x, y) {
+    const fx = this.effects[name];
+    if (!fx) return;
+    const v = fx.speed ?? 200;
+    this.game.particles.emit(x, y, {
+      count: fx.count ?? 20,
+      color: [fx.color1 ?? '#ffffff', fx.color2 ?? '#22d3ee'],
+      vx: [-v, v],
+      vy: [-v, v],
+      gravity: fx.gravity ?? 500,
+      life: [0.4, fx.life ?? 0.8],
+      size: [2, fx.size ?? 5],
+      shape: fx.shape || 'circle',
+    });
   }
 
   lose() {
@@ -1063,6 +1355,47 @@ export class PlayScene extends Scene {
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.fillText('ESC: editor', WORLD_W - 14, 16);
     ctx.restore();
+
+    // UI labels (pinned to the screen, GUI layer)
+    if (this.labels.length > 0) {
+      ctx.save();
+      for (const l of this.labels) {
+        ctx.font = `bold ${l.size}px system-ui, sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(2,6,23,0.55)';
+        ctx.strokeText(l.text, l.x, l.y);
+        ctx.fillStyle = l.color;
+        ctx.fillText(l.text, l.x, l.y);
+      }
+      ctx.restore();
+    }
+
+    // Debug overlay
+    if (this.debug) {
+      ctx.save();
+      const p = this.player;
+      const lines = [
+        `fps ${Math.round(this.game.fps)}`,
+        `entities ${this.entities.length}`,
+        `room ${this.roomName}`,
+        `player ${p.pos.x.toFixed(0)},${p.pos.y.toFixed(0)}`,
+        `vel ${p.vel.x.toFixed(0)},${p.vel.y.toFixed(0)}`,
+        `grounded ${p.grounded} score ${this.score}`,
+      ];
+      ctx.font = '12px ui-monospace, monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      const bw = 200;
+      const bh = lines.length * 16 + 12;
+      ctx.fillStyle = 'rgba(2,6,23,0.78)';
+      rr(ctx, WORLD_W - bw - 10, 44, bw, bh, 8);
+      ctx.fill();
+      ctx.fillStyle = '#4ade80';
+      lines.forEach((ln, i) => ctx.fillText(ln, WORLD_W - bw, 50 + i * 16));
+      ctx.restore();
+    }
 
     // Room intro banner
     if (this.bannerT > 0 && this.state === 'play') {

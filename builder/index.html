@@ -129,6 +129,54 @@
   }
   .rule .rule-x:hover { color: #f87171; }
   #rule-add { width: 100%; margin-top: 4px; }
+  .tabs { display: flex; gap: 6px; margin: 12px 0 8px; }
+  .tabbtn { flex: 1; font-size: 12px; padding: 6px 8px; }
+  .tabbtn.active { border-color: #38bdf8; color: #38bdf8; }
+  #plc-text {
+    width: 100%; background: #020617; border: 1px solid #334155; color: #a5f3fc;
+    border-radius: 8px; padding: 8px; font-family: ui-monospace, monospace; font-size: 12px;
+    resize: vertical; margin-bottom: 8px;
+  }
+  .plc-err { color: #fca5a5; font-size: 12px; margin-top: 6px; }
+  #props code { color: #67e8f9; font-size: 11px; }
+  #btn-debug.on { border-color: #4ade80; color: #4ade80; }
+  .modal-back {
+    position: fixed; inset: 0; background: rgba(2,6,23,0.7);
+    display: flex; align-items: center; justify-content: center; z-index: 50;
+  }
+  .modal-wrap { position: relative; width: min(560px, 92vw); max-height: 88vh; overflow-y: auto; }
+  .modal {
+    background: #0f172a; border: 1px solid #334155; border-radius: 14px;
+    padding: 20px;
+  }
+  .modal h2 { font-size: 18px; margin-bottom: 6px; }
+  .modal .muted { color: #64748b; font-size: 13px; margin-bottom: 12px; }
+  .modal .small { font-size: 12px; }
+  .modal-x {
+    position: absolute; top: -14px; right: -14px; width: 34px; height: 34px;
+    border-radius: 50%; background: #1e293b; border: 1px solid #334155;
+    color: #e2e8f0; font-size: 18px; z-index: 1;
+  }
+  .prefab-row {
+    display: flex; align-items: center; gap: 8px; padding: 8px;
+    border: 1px solid #1e293b; border-radius: 8px; margin-bottom: 6px;
+  }
+  .prefab-row .dot { width: 12px; height: 12px; border-radius: 4px; }
+  .prefab-row .spacer { flex: 1; }
+  .prefab-row button { font-size: 12px; padding: 5px 10px; }
+  .modal .row { display: flex; gap: 8px; align-items: center; }
+  .modal input[type="text"] {
+    background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+    border-radius: 6px; padding: 8px 10px; font-size: 13px;
+  }
+  .modal input[type="range"] { width: 100%; accent-color: #22d3ee; }
+  .modal select {
+    background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+    border-radius: 6px; padding: 6px 8px; font-size: 13px;
+  }
+  .modal input[type="color"] { width: 48px; height: 30px; border: none; background: none; padding: 0; cursor: pointer; }
+  #fx-controls label { display: block; font-size: 13px; color: #94a3b8; margin: 8px 0; }
+  #fx-controls .row label { display: flex; align-items: center; gap: 6px; margin: 0; }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .back { color: #22d3ee; text-decoration: none; font-size: 13px; }
   .back:hover { text-decoration: underline; }
@@ -147,9 +195,13 @@
     <span id="save-state"></span>
     <div class="actions">
       <button id="btn-sample" title="Load an example game (2 rooms)">Sample</button>
+      <button id="btn-prefabs" title="Reusable object prefabs">Prefabs</button>
+      <button id="btn-fx" title="Design particle effects">FX</button>
+      <button id="btn-debug" title="Show the debug overlay while playing">Debug</button>
       <button id="btn-export" title="Download this game as JSON">Export</button>
       <button id="btn-import" title="Load a game from a JSON file">Import</button>
       <button id="btn-clear" title="Remove everything in this room">Clear</button>
+      <button id="btn-publish" title="Download a standalone HTML5 game file">Publish</button>
     </div>
     <button id="play-btn">▶ Play</button>
   </header>
@@ -168,6 +220,7 @@
       <button data-tool="key"><span class="dot" style="background:#fbbf24;border-radius:50%"></span>Key</button>
       <button data-tool="door"><span class="dot" style="background:#b45309"></span>Door</button>
       <button data-tool="sign"><span class="dot" style="background:#d6a35c"></span>Sign</button>
+      <button data-tool="label"><span class="dot" style="background:#ffffff"></span>Label</button>
       <button data-tool="eraser">🧽 Eraser</button>
       <p id="tool-desc"></p>
       <p style="margin-top:auto"><a class="back" href="../index.html">← FlockBuilder</a></p>
@@ -187,6 +240,12 @@
     </aside>
   </main>
   <input type="file" id="import-file" accept=".json,application/json" style="display:none">
+  <div id="modal-back" class="modal-back" style="display:none">
+    <div class="modal-wrap">
+      <button id="modal-x" class="modal-x" title="Close">×</button>
+      <div class="modal" id="modal-box"></div>
+    </div>
+  </div>
   <script type="module" src="./builder.js"></script>
 </body>
 </html>

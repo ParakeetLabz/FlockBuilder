@@ -4,9 +4,10 @@
 // Levels auto-save to localStorage and can be exported as JSON.
 
 import { Game, Scene, Sprite } from '../src/flock.js';
-import { PlayScene, WORLD_W, WORLD_H, validObj, normalizeRooms } from './game-objects.js';
+import { PlayScene, WORLD_W, WORLD_H, validObj, normalizeRooms, parsePLC, rulesToPLC } from './game-objects.js';
 
 const STORE_KEY = 'flockbuilder-builder-level-v1';
+const PREFAB_KEY = 'flockbuilder-prefabs-v1';
 const SNAP = 10;
 
 const DEFAULTS = {
@@ -22,6 +23,7 @@ const DEFAULTS = {
   door: { w: 44, h: 76, color: '#b45309', label: 'Door — solid until you grab a key.' },
   sign: { w: 34, h: 44, color: '#d6a35c', message: 'Hello!', label: 'Sign — shows a message when touched.' },
   actor: { w: 40, h: 40, color: '#38bdf8', label: 'Actor — blank slate. Give it rules below and it comes alive.' },
+  label: { w: 140, h: 30, color: '#ffffff', text: 'Hello!', size: 20, label: 'Label — text pinned to the screen (UI layer).' },
 };
 
 const TOOL_HINTS = {
@@ -39,6 +41,8 @@ const editor = {
   roomIndex: 0,
   selectedId: null,
   playing: false,
+  debug: false,
+  effects: {},
 };
 
 const curRoom = () => editor.rooms[editor.roomIndex];
@@ -46,21 +50,31 @@ const objs = () => curRoom().objects;
 
 // ------------------------------------------------------------ persistence
 
-function loadRooms() {
+function loadProject() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return null;
-    return normalizeRooms(JSON.parse(raw));
+    return JSON.parse(raw);
   } catch (e) {
     return null;
   }
+}
+
+function loadRooms() {
+  const data = loadProject();
+  return data ? normalizeRooms(data) : null;
+}
+
+function loadEffects() {
+  const data = loadProject();
+  return data && data.effects && typeof data.effects === 'object' ? data.effects : {};
 }
 
 function save() {
   try {
     localStorage.setItem(
       STORE_KEY,
-      JSON.stringify({ app: 'flockbuilder-builder', version: 2, rooms: editor.rooms })
+      JSON.stringify({ app: 'flockbuilder-builder', version: 2, rooms: editor.rooms, effects: editor.effects })
     );
     const el = document.getElementById('save-state');
     if (el) {
@@ -167,6 +181,29 @@ function refreshEditor() {
       color: o.color,
       shape: o.type === 'coin' || o.type === 'key' ? 'circle' : 'rect',
     });
+    if (o.type === 'label') {
+      // Labels preview as text, like they appear in the game UI layer
+      s.draw = (ctx) => {
+        ctx.save();
+        ctx.font = `bold ${o.size || 20}px system-ui, sans-serif`;
+        ctx.fillStyle = o.color;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(o.text || 'Label', o.x, o.y);
+        ctx.restore();
+      };
+    } else if (o.type === 'actor' && o.image) {
+      const img = new Image();
+      img.src = o.image;
+      const drawShape = s.draw.bind(s);
+      s.draw = (ctx) => {
+        if (img.complete && img.naturalWidth > 0) {
+          ctx.drawImage(img, o.x, o.y, o.w, o.h);
+        } else {
+          drawShape(ctx);
+        }
+      };
+    }
     editScene.add(s);
   }
   renderRoomTabs();
@@ -211,6 +248,9 @@ function makeObj(type, cx, cy) {
     o.gravity = true;
     o.solid = false;
     o.rules = [];
+  } else if (type === 'label') {
+    o.text = d.text;
+    o.size = d.size;
   }
   return o;
 }
@@ -435,10 +475,23 @@ function renderProps() {
     ${o.type === 'platform' ? `<label>Direction <select id="paxis"><option value="x">Horizontal</option><option value="y">Vertical</option></select></label>` : ''}
     ${o.type === 'spring' ? `<label>Bounce power <span id="ppv">${o.power}</span><input id="pp" type="range" min="600" max="1600" step="50" value="${o.power}"></label>` : ''}
     ${o.type === 'sign' ? `<label>Message<input id="pmsg" type="text" maxlength="120" value="${String(o.message || '').replace(/"/g, '&quot;')}"></label>` : ''}
+    ${o.type === 'label' ? `
+      <label>Text<input id="plabel" type="text" maxlength="80" value="${String(o.text || '').replace(/"/g, '&quot;')}"></label>
+      <label>Size<input id="psize" type="number" value="${o.size || 20}" min="8" max="72" step="1"></label>
+    ` : ''}
     ${o.type === 'actor' ? `
       <label class="check"><input id="pgrv" type="checkbox" ${o.gravity !== false ? 'checked' : ''}> Affected by gravity</label>
       <label class="check"><input id="psol" type="checkbox" ${o.solid ? 'checked' : ''}> Solid (blocks the player)</label>
+      <label>Sprite image <input id="pimg" type="file" accept="image/*"></label>
+      <div id="imgprev">${o.image ? `<img src="${o.image}" alt="sprite preview" style="max-width:100%;border-radius:6px;display:block;margin-bottom:4px"><button id="pimgdel" type="button">Remove image</button>` : '<span class="muted small">No image — the colored shape is used.</span>'}</div>
+      <div class="tabs"><button id="tab-visual" class="tabbtn active" type="button">PLC Visual</button><button id="tab-code" class="tabbtn" type="button">PLC Code</button></div>
       <div id="rules-wrap"><h4>Rules <span class="muted small">— when / then</span></h4><div id="rules-list"></div><button id="rule-add" type="button">+ Add rule</button></div>
+      <div id="plc-wrap" style="display:none">
+        <textarea id="plc-text" rows="11" spellcheck="false" placeholder="when timer 1.5 then jump 700"></textarea>
+        <div class="row"><button id="plc-apply" type="button">Apply PLC</button><button id="plc-revert" type="button">Revert</button></div>
+        <div id="plc-errors"></div>
+        <p class="muted small">PLC — Parakeet Logic Code. One rule per line:<br><code>when &lt;trigger&gt; then &lt;action&gt;</code><br>e.g. <code>when key E then move right 200</code></p>
+      </div>
     ` : ''}
     <button id="pdel" class="danger">Delete object</button>
   `;
@@ -488,6 +541,25 @@ function renderProps() {
     msgEl.addEventListener('input', (e) => {
       o.message = e.target.value.slice(0, 120);
       save();
+    });
+  }
+  const labelEl = document.getElementById('plabel');
+  if (labelEl) {
+    labelEl.addEventListener('input', (e) => {
+      o.text = e.target.value.slice(0, 80);
+      refreshEditor();
+      save();
+    });
+  }
+  const sizeEl = document.getElementById('psize');
+  if (sizeEl) {
+    sizeEl.addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      if (Number.isFinite(v)) {
+        o.size = Math.max(8, Math.min(72, v));
+        refreshEditor();
+        save();
+      }
     });
   }
   document.getElementById('pdel').addEventListener('click', () => deleteObj(o.id));
@@ -558,6 +630,11 @@ function actionParams(r, i) {
       return 'x ' + numHtml('tx', i, r.tx ?? 0, 0, 960, 10) + ' y ' + numHtml('ty', i, r.ty ?? 0, 0, 540, 10);
     case 'spawn':
       return selHtml('spawn', i, { coin: 'Coin', enemy: 'Enemy' }, r.spawn || 'coin');
+    case 'fx': {
+      const names = Object.keys(editor.effects);
+      if (!names.length) return '<span class="muted small">no effects yet — open the FX editor</span>';
+      return selHtml('fx', i, Object.fromEntries(names.map((n) => [n, n])), r.fx || names[0]);
+    }
     default:
       return '';
   }
@@ -621,9 +698,319 @@ function wireActorProps(o) {
     refreshEditor();
     save();
   });
+
+  // Sprite image upload
+  const imgInput = document.getElementById('pimg');
+  imgInput.addEventListener('change', () => {
+    const f = imgInput.files[0];
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      o.image = rd.result;
+      save();
+      refreshEditor();
+      renderProps();
+    };
+    rd.readAsDataURL(f);
+  });
+  const imgDel = document.getElementById('pimgdel');
+  if (imgDel) {
+    imgDel.addEventListener('click', () => {
+      o.image = null;
+      save();
+      refreshEditor();
+      renderProps();
+    });
+  }
+
+  // PLC Visual / PLC Code tabs
+  const showTab = (code) => {
+    document.getElementById('rules-wrap').style.display = code ? 'none' : '';
+    document.getElementById('plc-wrap').style.display = code ? '' : 'none';
+    document.getElementById('tab-visual').classList.toggle('active', !code);
+    document.getElementById('tab-code').classList.toggle('active', code);
+    if (code) {
+      document.getElementById('plc-text').value = rulesToPLC(o.rules);
+      document.getElementById('plc-errors').innerHTML = '';
+    }
+  };
+  document.getElementById('tab-visual').addEventListener('click', () => showTab(false));
+  document.getElementById('tab-code').addEventListener('click', () => showTab(true));
+  document.getElementById('plc-revert').addEventListener('click', () => {
+    document.getElementById('plc-text').value = rulesToPLC(o.rules);
+    document.getElementById('plc-errors').innerHTML = '';
+  });
+  document.getElementById('plc-apply').addEventListener('click', () => {
+    const { rules, errors } = parsePLC(document.getElementById('plc-text').value);
+    const errBox = document.getElementById('plc-errors');
+    if (errors.length > 0) {
+      errBox.innerHTML = errors.map((e) => `<div class="plc-err">Line ${e.line}: ${e.message}</div>`).join('');
+    } else {
+      errBox.innerHTML = '';
+      o.rules = rules;
+      save();
+      renderRulesList(o);
+      showTab(false);
+    }
+  });
+
   renderRulesList(o);
   wireRules(o);
 }
+
+// ------------------------------------------------------------------ modal
+
+const modalBack = document.getElementById('modal-back');
+const modalBox = document.getElementById('modal-box');
+
+function openModal(html) {
+  modalBox.innerHTML = html;
+  modalBack.style.display = 'flex';
+}
+
+function closeModal() {
+  modalBack.style.display = 'none';
+  modalBox.innerHTML = '';
+}
+
+modalBack.addEventListener('click', (e) => {
+  if (e.target === modalBack) closeModal();
+});
+document.getElementById('modal-x').addEventListener('click', closeModal);
+
+// ---------------------------------------------------------- prefab library
+
+function loadPrefabs() {
+  try {
+    const raw = localStorage.getItem(PREFAB_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((p) => p && p.name && p.obj && validObj(p.obj)) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function savePrefabs(list) {
+  try {
+    localStorage.setItem(PREFAB_KEY, JSON.stringify(list));
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+function openPrefabModal() {
+  const render = () => {
+    const list = loadPrefabs();
+    const sel = byId(editor.selectedId);
+    openModal(`
+      <h2>Prefab Library</h2>
+      <p class="muted">Save any object as a reusable prefab, then stamp copies into any room.</p>
+      <div id="prefab-list">
+        ${list.length === 0 ? '<p class="muted">No prefabs yet — select an object and save it below.</p>' : ''}
+        ${list
+          .map(
+            (p, i) => `
+          <div class="prefab-row">
+            <span class="dot" style="background:${p.obj.color || '#888'}"></span>
+            <b>${String(p.name).replace(/</g, '&lt;')}</b>
+            <span class="muted small">${p.obj.type}</span>
+            <span class="spacer"></span>
+            <button data-stamp="${i}" type="button">Stamp</button>
+            <button data-delprefab="${i}" type="button" class="danger">Delete</button>
+          </div>`
+          )
+          .join('')}
+      </div>
+      <div class="row" style="margin-top:12px">
+        <input id="prefab-name" type="text" placeholder="Prefab name" maxlength="30" style="flex:1">
+        <button id="prefab-save" type="button" ${sel ? '' : 'disabled'}>Save selected as prefab</button>
+      </div>
+      ${sel ? '' : '<p class="muted small">Select an object on the canvas to save it.</p>'}
+    `);
+    modalBox.querySelectorAll('[data-stamp]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const p = loadPrefabs()[+b.dataset.stamp];
+        if (!p) return;
+        const copy = JSON.parse(JSON.stringify(p.obj));
+        copy.id = nid();
+        copy.x = snap(WORLD_W / 2 - copy.w / 2);
+        copy.y = snap(WORLD_H / 2 - copy.h / 2);
+        objs().push(copy);
+        editor.selectedId = copy.id;
+        closeModal();
+        afterEdit();
+      })
+    );
+    modalBox.querySelectorAll('[data-delprefab]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const l = loadPrefabs();
+        l.splice(+b.dataset.delprefab, 1);
+        savePrefabs(l);
+        render();
+      })
+    );
+    const saveBtn = modalBox.querySelector('#prefab-save');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', () => {
+        const s = byId(editor.selectedId);
+        const name = modalBox.querySelector('#prefab-name').value.trim().slice(0, 30);
+        if (!s || !name) return;
+        const l = loadPrefabs();
+        l.push({ name, obj: JSON.parse(JSON.stringify(s)) });
+        savePrefabs(l);
+        render();
+      });
+    }
+  };
+  render();
+}
+
+document.getElementById('btn-prefabs').addEventListener('click', () => {
+  if (!editor.playing) openPrefabModal();
+});
+
+// ------------------------------------------------------- particle FX editor
+
+const FX_DEFAULTS = {
+  count: 24, color1: '#ffffff', color2: '#22d3ee',
+  speed: 220, gravity: 500, life: 0.8, size: 5, shape: 'circle',
+};
+
+function fxPreviewBurst(canvas, fx) {
+  const ctx = canvas.getContext('2d');
+  const parts = [];
+  for (let i = 0; i < fx.count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = fx.speed * (0.3 + Math.random() * 0.7);
+    parts.push({
+      x: canvas.width / 2,
+      y: canvas.height / 2,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      life: fx.life * (0.6 + Math.random() * 0.4),
+      t: 0,
+      size: Math.max(1, fx.size * (0.6 + Math.random() * 0.6)),
+      color: Math.random() < 0.5 ? fx.color1 : fx.color2,
+    });
+  }
+  if (fxPreviewBurst._raf) cancelAnimationFrame(fxPreviewBurst._raf);
+  let last = performance.now();
+  const tick = (now) => {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    let alive = false;
+    for (const p of parts) {
+      p.t += dt;
+      if (p.t >= p.life) continue;
+      alive = true;
+      p.vy += fx.gravity * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      ctx.globalAlpha = Math.max(0, 1 - p.t / p.life);
+      ctx.fillStyle = p.color;
+      if (fx.shape === 'square') {
+        ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+      } else {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size / 2, 0, 7);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+    if (alive) fxPreviewBurst._raf = requestAnimationFrame(tick);
+  };
+  fxPreviewBurst._raf = requestAnimationFrame(tick);
+}
+
+function openFxModal() {
+  const cur = { ...FX_DEFAULTS };
+  const sliders = [
+    ['count', 'Particles', 5, 100, 1],
+    ['speed', 'Speed', 50, 600, 10],
+    ['gravity', 'Gravity', 0, 1500, 25],
+    ['life', 'Life (sec)', 0.2, 2, 0.1],
+    ['size', 'Size', 2, 12, 1],
+  ];
+  openModal(`
+    <h2>Particle FX</h2>
+    <p class="muted">Design an effect, save it, then trigger it from any actor with PLC: <code>then fx name</code>.</p>
+    <canvas id="fx-preview" width="320" height="170" style="width:100%;border-radius:8px;background:#020617;border:1px solid #1e293b"></canvas>
+    <div id="fx-controls">
+      ${sliders
+        .map(
+          ([k, label, min, max, step]) => `
+        <label>${label} <span id="fxv-${k}">${cur[k]}</span>
+        <input type="range" id="fx-${k}" min="${min}" max="${max}" step="${step}" value="${cur[k]}"></label>`
+        )
+        .join('')}
+      <div class="row">
+        <label>Color 1 <input type="color" id="fx-color1" value="${cur.color1}"></label>
+        <label>Color 2 <input type="color" id="fx-color2" value="${cur.color2}"></label>
+        <label>Shape <select id="fx-shape"><option value="circle">Circle</option><option value="square">Square</option></select></label>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="fx-burst" type="button">Burst preview</button>
+      <input id="fx-name" type="text" placeholder="Effect name" maxlength="24" style="flex:1">
+      <button id="fx-save" type="button">Save effect</button>
+    </div>
+    <div id="fx-list" style="margin-top:10px"></div>
+  `);
+  const preview = modalBox.querySelector('#fx-preview');
+  for (const [k] of sliders) {
+    modalBox.querySelector(`#fx-${k}`).addEventListener('input', (e) => {
+      cur[k] = parseFloat(e.target.value);
+      modalBox.querySelector(`#fxv-${k}`).textContent = cur[k];
+    });
+  }
+  modalBox.querySelector('#fx-color1').addEventListener('input', (e) => (cur.color1 = e.target.value));
+  modalBox.querySelector('#fx-color2').addEventListener('input', (e) => (cur.color2 = e.target.value));
+  modalBox.querySelector('#fx-shape').addEventListener('change', (e) => (cur.shape = e.target.value));
+  modalBox.querySelector('#fx-burst').addEventListener('click', () => fxPreviewBurst(preview, cur));
+
+  const renderList = () => {
+    const names = Object.keys(editor.effects);
+    modalBox.querySelector('#fx-list').innerHTML =
+      names.length === 0
+        ? '<p class="muted small">No saved effects yet.</p>'
+        : names
+            .map(
+              (n) => `
+          <div class="prefab-row">
+            <b>${String(n).replace(/</g, '&lt;')}</b>
+            <span class="spacer"></span>
+            <button data-fxtest="${String(n).replace(/"/g, '&quot;')}" type="button">Test</button>
+            <button data-fxdel="${String(n).replace(/"/g, '&quot;')}" type="button" class="danger">Delete</button>
+          </div>`
+            )
+            .join('');
+    modalBox.querySelectorAll('[data-fxtest]').forEach((b) =>
+      b.addEventListener('click', () => fxPreviewBurst(preview, editor.effects[b.dataset.fxtest]))
+    );
+    modalBox.querySelectorAll('[data-fxdel]').forEach((b) =>
+      b.addEventListener('click', () => {
+        delete editor.effects[b.dataset.fxdel];
+        save();
+        renderList();
+      })
+    );
+  };
+  modalBox.querySelector('#fx-save').addEventListener('click', () => {
+    const name = modalBox.querySelector('#fx-name').value.trim().slice(0, 24);
+    if (!name) return;
+    editor.effects[name] = { ...cur };
+    save();
+    modalBox.querySelector('#fx-name').value = '';
+    renderList();
+  });
+  renderList();
+  fxPreviewBurst(preview, cur);
+}
+
+document.getElementById('btn-fx').addEventListener('click', () => {
+  if (!editor.playing) openFxModal();
+});
 
 // ------------------------------------------------------------------ play
 
@@ -635,7 +1022,8 @@ function startPlay(roomIndex) {
   document.body.classList.add('playing');
   playBtn.innerHTML = '⏹ Stop';
   playBtn.classList.add('stop');
-  const scene = new PlayScene(game, editor.rooms, roomIndex);
+  const scene = new PlayScene(game, editor.rooms, roomIndex, editor.effects);
+  scene.debug = editor.debug;
   scene.onRestart = () => {
     game.popScene();
     editor.playing = false;
@@ -664,6 +1052,102 @@ function stopPlay() {
 playBtn.addEventListener('click', () => {
   if (editor.playing) stopPlay();
   else startPlay(editor.roomIndex);
+});
+
+// ------------------------------------------------------------ debug toggle
+
+const debugBtn = document.getElementById('btn-debug');
+debugBtn.addEventListener('click', () => {
+  editor.debug = !editor.debug;
+  debugBtn.classList.toggle('on', editor.debug);
+});
+
+// ------------------------------------------------------ publish standalone
+// Builds a single self-contained HTML5 file: the engine + the game data,
+// no server or build step needed. It runs anywhere a browser runs.
+
+const BUNDLE_FILES = [
+  '../src/utils.js',
+  '../src/entity.js',
+  '../src/sprite.js',
+  '../src/scene.js',
+  '../src/input.js',
+  '../src/physics.js',
+  '../src/camera.js',
+  '../src/audio.js',
+  '../src/particles.js',
+  '../src/text.js',
+  '../src/engine.js',
+  './game-objects.js',
+];
+
+async function buildStandalone() {
+  let bundle = '';
+  for (const f of BUNDLE_FILES) {
+    const res = await fetch(f);
+    if (!res.ok) throw new Error('could not load ' + f);
+    let code = await res.text();
+    code = code.replace(/^import\b[\s\S]*?\bfrom\s*['"][^'"]*['"];?/gm, '');
+    code = code.replace(/^export\s+/gm, '');
+    bundle += `\n// ---- ${f} ----\n` + code;
+  }
+  const data = JSON.stringify({ rooms: editor.rooms, effects: editor.effects }).replace(/</g, '\\u003c');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My FlockBuilder Game</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#020617; min-height:100vh; display:flex; align-items:center; justify-content:center; }
+  canvas { max-width:100vw; max-height:100vh; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+${bundle}
+const GAME_DATA = ${data};
+(function () {
+  const game = new Game({ width: 960, height: 540, canvas: document.getElementById('game') });
+  game.audio.define('boing', (a) => a.tone(180, 0.28, 'square', 0.3, 820));
+  function runRoom(i) {
+    const scene = new PlayScene(game, GAME_DATA.rooms, i, GAME_DATA.effects || {});
+    scene.onRestart = () => { game.popScene(); runRoom(i); };
+    scene.onAdvance = () => { game.popScene(); runRoom(i + 1); };
+    scene.onStop = () => {};
+    game.pushScene(scene);
+  }
+  runRoom(0);
+  game.start();
+})();
+<\/script>
+</body>
+</html>`;
+}
+
+document.getElementById('btn-publish').addEventListener('click', async () => {
+  if (editor.playing) return;
+  const btn = document.getElementById('btn-publish');
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = 'Building…';
+  try {
+    const html = await buildStandalone();
+    const blob = new Blob([html], { type: 'text/html' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'my-flockbuilder-game.html';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } catch (err) {
+    window.alert('Could not build the game file: ' + err.message);
+  }
+  btn.disabled = false;
+  btn.textContent = old;
 });
 
 // -------------------------------------------------- level actions
@@ -791,7 +1275,7 @@ document.getElementById('btn-clear').addEventListener('click', () => {
 
 document.getElementById('btn-export').addEventListener('click', () => {
   const blob = new Blob(
-    [JSON.stringify({ app: 'flockbuilder-builder', version: 2, rooms: editor.rooms }, null, 2)],
+    [JSON.stringify({ app: 'flockbuilder-builder', version: 2, rooms: editor.rooms, effects: editor.effects }, null, 2)],
     { type: 'application/json' }
   );
   const a = document.createElement('a');
@@ -836,6 +1320,7 @@ if (loaded && loaded.length > 0) {
   editor.rooms = defaultRooms();
   save();
 }
+editor.effects = loadEffects();
 editor.roomIndex = 0;
 refreshEditor();
 renderProps();

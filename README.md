@@ -19,6 +19,18 @@ Made by [Parakeet Labz](https://parakeetlabz.vercel.app) · MIT licensed.
 | `ParticleSystem` | Fire-and-forget bursts with gravity, drag, fading |
 | `Text` | Canvas text with alignment and outline |
 
+## FlockBuilder Studio (no-code game maker)
+
+Open `builder/index.html` — or the 🎮 button on the site — for the visual
+game maker: 12 object types, multiple rooms, drag-and-drop placement,
+properties panel, and instant Play mode.
+
+Its GameMaker-style core is **PLC (Parakeet Logic Code)**: actors get
+*WHEN → THEN* rules, editable either visually (**PLC Visual**, dropdowns) or
+as text (**PLC Code**, e.g. `when timer 1.5 then jump 700`). Plus: PNG sprite
+uploads, UI labels, a prefab library, a particle FX editor, a debug overlay,
+and one-click **Publish** to a standalone HTML5 file that runs anywhere.
+
 ## Quick start
 
 Serve the folder over HTTP (ES modules don't run from `file://`):

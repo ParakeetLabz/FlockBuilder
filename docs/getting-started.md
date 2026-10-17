@@ -124,9 +124,21 @@ multi-room platformers entirely with clicks.
   and give it visual *WHEN → THEN* rules in the Properties panel. Triggers:
   on game start, touches player, key pressed, every few seconds, when
   destroyed. Actions: move, jump, destroy itself, add score, play a sound,
-  win/lose, show a message, teleport, spawn coins or enemies. Chain them to
-  make bouncy blobs, score pickups, patrolling turrets, keys that talk —
-  whatever you imagine, no code.
+  win/lose, show a message, teleport, spawn coins or enemies, play a particle
+  effect. Chain them to make bouncy blobs, score pickups, patrolling turrets,
+  keys that talk — whatever you imagine, no code.
+- **PLC (Parakeet Logic Code)** — FlockBuilder's own scripting language. Every
+  actor has a PLC Code tab next to PLC Visual: write rules as text, one per
+  line (`when timer 1.5 then jump 700`), and Apply. Same rules, your choice
+  of editor.
+- **Sprites** — upload a PNG for any actor in its Properties panel.
+- **Labels** — text pinned to the screen (UI layer) for titles and HUD hints.
+- **Prefab Library** — save any object as a reusable prefab and stamp copies.
+- **Particle FX editor** — design effects with sliders, preview the burst, save
+  them, trigger with `then fx name`.
+- **Debug overlay** — FPS, entity count, player position/velocity while playing.
+- **Publish** — downloads a single standalone HTML5 file of your game. It runs
+  anywhere a browser runs — no server, no build step.
 - **▶ Play** — test instantly in the same canvas. ESC returns to the editor.
 - **Save/Export/Import** — levels auto-save in your browser; export them as
   JSON to share.
