@@ -25,11 +25,13 @@ Open `builder/index.html` — or the 🎮 button on the site — for the visual
 game maker: 12 object types, multiple rooms, drag-and-drop placement,
 properties panel, and instant Play mode.
 
-Its GameMaker-style core is **PLC (Parakeet Logic Code)**: actors get
-*WHEN → THEN* rules, editable either visually (**PLC Visual**, dropdowns) or
-as text (**PLC Code**, e.g. `when timer 1.5 then jump 700`). Plus: PNG sprite
-uploads, UI labels, a prefab library, a particle FX editor, a debug overlay,
-and one-click **Publish** to a standalone HTML5 file that runs anywhere.
+Its GameMaker-style core is **PLL (Parakeet Labz Language)**: actors get
+*WHEN → THEN* rules, editable either visually (**PLL Visual**, dropdowns) or
+as text (**PLL Code**, e.g. `when timer 1.5 then jump 700`). See
+[docs/pll.md](docs/pll.md) for the full language guide. Plus: PNG sprite
+uploads, UI labels, checkpoints, stompable enemies, shootable projectiles,
+a prefab library, a particle FX editor, a debug overlay, and one-click
+**Publish** to a standalone HTML5 file that runs anywhere.
 
 ## Quick start
 

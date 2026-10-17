@@ -21,6 +21,7 @@ export const WORLD_H = 540;
 export const OBJECT_TYPES = [
   'player', 'wall', 'coin', 'enemy', 'goal',
   'platform', 'spikes', 'spring', 'key', 'door', 'sign', 'actor', 'label',
+  'checkpoint',
 ];
 
 export function validObj(o) {
@@ -669,6 +670,15 @@ export class Actor extends Sprite {
           return true;
         }
         return false;
+      case 'score': {
+        // Fires once when the score first reaches the threshold
+        this._scoreFlags = this._scoreFlags || {};
+        if (!this._scoreFlags[i] && scene.score >= (rule.score || 1)) {
+          this._scoreFlags[i] = true;
+          return true;
+        }
+        return false;
+      }
       default:
         return false;
     }
@@ -735,6 +745,39 @@ export class Actor extends Sprite {
       case 'fx':
         scene.emitEffect(rule.fx || '', this.cx, this.cy);
         break;
+      case 'shoot': {
+        const sp = rule.speed ?? 500;
+        const d = rule.direction || 'right';
+        let vx = 0;
+        let vy = 0;
+        let ox = 0;
+        let oy = 0;
+        if (d === 'left') {
+          vx = -sp;
+          ox = -this.size.x / 2 - 8;
+        } else if (d === 'right') {
+          vx = sp;
+          ox = this.size.x / 2 + 8;
+        } else if (d === 'up') {
+          vy = -sp;
+          oy = -this.size.y / 2 - 8;
+        } else if (d === 'down') {
+          vy = sp;
+          oy = this.size.y / 2 + 8;
+        } else if ((d === 'toward' || d === 'away') && p) {
+          const dx = p.cx - this.cx;
+          const dy = p.cy - this.cy;
+          const l = Math.hypot(dx, dy) || 1;
+          const s = d === 'toward' ? 1 : -1;
+          vx = (dx / l) * sp * s;
+          vy = (dy / l) * sp * s;
+          ox = (dx / l) * (this.size.x / 2 + 8) * s;
+          oy = (dy / l) * (this.size.y / 2 + 8) * s;
+        }
+        scene.spawnBullet(this.cx + ox, this.cy + oy, vx, vy);
+        game.audio.play('blip');
+        break;
+      }
       default:
         break;
     }
@@ -766,10 +809,96 @@ export class Actor extends Sprite {
   }
 }
 
-// ------------------------------------------------- PLC (Parakeet Logic Code)
+// ---------------------------------------------------------------- Bullet --
+// A projectile fired by the 'shoot' action. Kills enemies, pops on walls,
+// and hurts the player (after a short grace period so you can't hit yourself).
+
+export class Bullet extends Entity {
+  constructor(x, y, vx, vy) {
+    super({ x: x - 6, y: y - 6, w: 12, h: 12 });
+    this.addTag('bullet');
+    this.vel.set(vx, vy);
+    this.age = 0;
+    this.life = 3;
+    this.t = 0;
+  }
+
+  update(dt, game) {
+    this.age += dt;
+    this.t += dt;
+    this.pos.x += this.vel.x * dt;
+    this.pos.y += this.vel.y * dt;
+    if (this.age >= this.life) {
+      this.active = false;
+      this.visible = false;
+    }
+    super.update(dt, game);
+  }
+
+  draw(ctx) {
+    if (!this.visible) return;
+    const pulse = 1 + Math.sin(this.t * 20) * 0.15;
+    ctx.save();
+    ctx.fillStyle = '#fde047';
+    if (typeof ctx.shadowBlur === 'number') {
+      ctx.shadowColor = '#f59e0b';
+      ctx.shadowBlur = 10;
+    }
+    ctx.beginPath();
+    ctx.arc(this.cx, this.cy, 6 * pulse, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ------------------------------------------------------------ Checkpoint --
+// Touch it to set your respawn point. Dying respawns you here instead of
+// restarting the room, with a couple seconds of mercy invulnerability.
+
+export class Checkpoint extends Entity {
+  constructor(o = {}) {
+    super({ x: o.x ?? 0, y: o.y ?? 0, w: o.w ?? 40, h: o.h ?? 64 });
+    this.addTag('checkpoint');
+    this.color = o.color ?? '#a78bfa';
+    this.activated = false;
+    this.t = 0;
+  }
+
+  update(dt, game) {
+    this.t += dt;
+    super.update(dt, game);
+  }
+
+  draw(ctx) {
+    if (!this.visible) return;
+    const x = this.pos.x;
+    const y = this.pos.y;
+    const w = this.size.x;
+    const h = this.size.y;
+    ctx.save();
+    // Pole + base
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(x + w / 2 - 3, y, 6, h);
+    ctx.fillStyle = '#64748b';
+    rr(ctx, x + w / 2 - 12, y + h - 8, 24, 8, 3);
+    ctx.fill();
+    // Flag: gray until activated, then green and waving
+    const wave = this.activated ? Math.sin(this.t * 6) * 4 : 0;
+    ctx.fillStyle = this.activated ? '#4ade80' : '#94a3b8';
+    ctx.beginPath();
+    ctx.moveTo(x + w / 2 + 3, y + 4);
+    ctx.quadraticCurveTo(x + w / 2 + w * 0.4, y + 8 + wave, x + w - 2, y + 15 + wave);
+    ctx.lineTo(x + w / 2 + 3, y + 28);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ------------------------------------------------- PLL (Parakeet Labz Language)
 // FlockBuilder's own scripting language: a tiny line-based language that
-// compiles 1:1 to the visual rules engine. "PLC Visual" (the WHEN/THEN
-// dropdown editor) and PLC text are two views of the same rules.
+// compiles 1:1 to the visual rules engine. "PLL Visual" (the WHEN/THEN
+// dropdown editor) and PLL text are two views of the same rules.
 //
 //   when start then say "Go!"
 //   when touch player then score 5
@@ -781,10 +910,10 @@ export class Actor extends Sprite {
 //   when timer 0.5 then spawn enemy
 //   when destroyed then fx poof
 
-const PLC_DIRS = ['left', 'right', 'up', 'down', 'toward', 'away'];
-const PLC_SPAWNS = ['coin', 'enemy'];
+const PLL_DIRS = ['left', 'right', 'up', 'down', 'toward', 'away'];
+const PLL_SPAWNS = ['coin', 'enemy'];
 
-function plcKeyToCode(word) {
+function pllKeyToCode(word) {
   if (/^[a-z]$/i.test(word)) return 'Key' + word.toUpperCase();
   const w = word.toLowerCase();
   if (w === 'space') return 'Space';
@@ -795,13 +924,13 @@ function plcKeyToCode(word) {
   return word; // assume a raw KeyboardEvent.code like ShiftLeft
 }
 
-function plcCodeToKey(code) {
+function pllCodeToKey(code) {
   if (/^Key[A-Z]$/.test(code)) return code.slice(3);
   const m = { Space: 'Space', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right' };
   return m[code] || code;
 }
 
-function plcParseTrigger(src, lineNo, errors) {
+function pllParseTrigger(src, lineNo, errors) {
   const parts = src.trim().split(/\s+/);
   const head = (parts[0] || '').toLowerCase();
   if (head === 'start' && parts.length === 1) return { trigger: 'start' };
@@ -810,7 +939,7 @@ function plcParseTrigger(src, lineNo, errors) {
   }
   if (head === 'destroyed' && parts.length === 1) return { trigger: 'destroyed' };
   if (head === 'key' && parts.length === 2) {
-    return { trigger: 'key', key: plcKeyToCode(parts[1]) };
+    return { trigger: 'key', key: pllKeyToCode(parts[1]) };
   }
   if (head === 'timer' && parts.length === 2) {
     const seconds = parseFloat(parts[1]);
@@ -820,14 +949,22 @@ function plcParseTrigger(src, lineNo, errors) {
     }
     return { trigger: 'timer', seconds };
   }
+  if (head === 'score' && parts.length === 2) {
+    const at = parseInt(parts[1], 10);
+    if (!Number.isFinite(at) || at < 1) {
+      errors.push({ line: lineNo, message: `score needs a whole number 1 or more, got "${parts[1]}"` });
+      return null;
+    }
+    return { trigger: 'score', score: at };
+  }
   errors.push({
     line: lineNo,
-    message: `unknown trigger "${src}" — try: start, touch player, destroyed, key E, timer 1.5`,
+    message: `unknown trigger "${src}" — try: start, touch player, destroyed, key E, timer 1.5, score 10`,
   });
   return null;
 }
 
-function plcParseAction(src, lineNo, errors) {
+function pllParseAction(src, lineNo, errors) {
   const m = src.trim().match(/^([a-z]+)\b\s*(.*)$/i);
   if (!m) {
     errors.push({ line: lineNo, message: `unknown action "${src}"` });
@@ -869,8 +1006,8 @@ function plcParseAction(src, lineNo, errors) {
     case 'move': {
       const p = rest.split(/\s+/);
       const dir = (p[0] || '').toLowerCase();
-      if (!PLC_DIRS.includes(dir)) {
-        errors.push({ line: lineNo, message: `move needs a direction (${PLC_DIRS.join('/')}), got "${p[0] || ''}"` });
+      if (!PLL_DIRS.includes(dir)) {
+        errors.push({ line: lineNo, message: `move needs a direction (${PLL_DIRS.join('/')}), got "${p[0] || ''}"` });
         return null;
       }
       const speed = num(p[1] || '', 'move');
@@ -894,8 +1031,8 @@ function plcParseAction(src, lineNo, errors) {
     }
     case 'spawn': {
       const kind = rest.toLowerCase().split(/\s+/)[0];
-      if (!PLC_SPAWNS.includes(kind)) {
-        errors.push({ line: lineNo, message: `spawn needs ${PLC_SPAWNS.join('/')} , got "${rest}"` });
+      if (!PLL_SPAWNS.includes(kind)) {
+        errors.push({ line: lineNo, message: `spawn needs ${PLL_SPAWNS.join('/')} , got "${rest}"` });
         return null;
       }
       return { action: 'spawn', spawn: kind };
@@ -906,17 +1043,27 @@ function plcParseAction(src, lineNo, errors) {
         return null;
       }
       return { action: 'fx', fx: rest.split(/\s+/)[0] };
+    case 'shoot': {
+      const p = rest.split(/\s+/);
+      const dir = (p[0] || '').toLowerCase();
+      if (!PLL_DIRS.includes(dir)) {
+        errors.push({ line: lineNo, message: `shoot needs a direction (${PLL_DIRS.join('/')}), got "${p[0] || ''}"` });
+        return null;
+      }
+      const speed = num(p[1] || '', 'shoot');
+      return speed === null ? null : { action: 'shoot', direction: dir, speed };
+    }
     default:
       errors.push({
         line: lineNo,
-        message: `unknown action "${head}" — try: say, score, destroy self, jump, move, sound, win, lose, teleport, spawn, fx`,
+        message: `unknown action "${head}" — try: say, score, destroy self, jump, move, shoot, sound, win, lose, teleport, spawn, fx`,
       });
       return null;
   }
 }
 
-// Parses PLC source into { rules, errors }. errors is [{ line, message }].
-export function parsePLC(text) {
+// Parses PLL source into { rules, errors }. errors is [{ line, message }].
+export function parsePLL(text) {
   const rules = [];
   const errors = [];
   String(text || '')
@@ -930,17 +1077,17 @@ export function parsePLC(text) {
         errors.push({ line: lineNo, message: 'each rule looks like: when <trigger> then <action>' });
         return;
       }
-      const t = plcParseTrigger(m[1], lineNo, errors);
+      const t = pllParseTrigger(m[1], lineNo, errors);
       if (!t) return;
-      const a = plcParseAction(m[2], lineNo, errors);
+      const a = pllParseAction(m[2], lineNo, errors);
       if (!a) return;
       rules.push({ ...t, ...a });
     });
   return { rules, errors };
 }
 
-// Serializes rules back to PLC text.
-export function rulesToPLC(rules) {
+// Serializes rules back to PLL text.
+export function rulesToPLL(rules) {
   return (rules || [])
     .map((r) => {
       let t = '';
@@ -955,10 +1102,13 @@ export function rulesToPLC(rules) {
           t = 'when destroyed';
           break;
         case 'key':
-          t = `when key ${plcCodeToKey(r.key || 'Space')}`;
+          t = `when key ${pllCodeToKey(r.key || 'Space')}`;
           break;
         case 'timer':
           t = `when timer ${r.seconds ?? 2}`;
+          break;
+        case 'score':
+          t = `when score ${r.score ?? 5}`;
           break;
         default:
           t = 'when start';
@@ -997,6 +1147,9 @@ export function rulesToPLC(rules) {
           break;
         case 'fx':
           a = `fx ${r.fx || ''}`;
+          break;
+        case 'shoot':
+          a = `shoot ${r.direction || 'right'} ${r.speed ?? 500}`;
           break;
         default:
           a = 'say "?"';
@@ -1062,6 +1215,10 @@ export class PlayScene extends Scene {
     this.signs = [];
     this.actors = [];
     this.labels = [];
+    this.bullets = [];
+    this.checkpoints = [];
+    this.spawnPoint = null; // set by checkpoints; lose() respawns here
+    this.invulnT = 0; // mercy invulnerability after a checkpoint respawn
     this.goal = null;
     this.onRestart = null; // replay this room
     this.onAdvance = null; // go to next room
@@ -1121,6 +1278,9 @@ export class PlayScene extends Scene {
             size: o.size ?? 20,
             color: o.color ?? '#ffffff',
           });
+          break;
+        case 'checkpoint':
+          this.checkpoints.push(this.add(new Checkpoint(o)));
           break;
         case 'goal':
           this.goal = this.add(new Goal(o));
@@ -1184,10 +1344,60 @@ export class PlayScene extends Scene {
     });
   }
 
+  // Fire a bullet from a world position.
+  spawnBullet(x, y, vx, vy) {
+    const b = new Bullet(x, y, vx, vy);
+    this.add(b);
+    this.bullets.push(b);
+  }
+
+  // Defeat an enemy (stomped or shot). Stomping bounces the player.
+  killEnemy(e, stomp) {
+    if (!e.active) return;
+    e.active = false;
+    e.visible = false;
+    this.score += 1;
+    this.game.audio.play('blip');
+    this.game.particles.emit(e.cx, e.cy, {
+      count: 12,
+      color: ['#ef4444', '#fca5a5'],
+      vx: [-180, 180],
+      vy: [-260, -40],
+      gravity: 800,
+      life: [0.4, 0.8],
+      size: [2, 6],
+    });
+    if (stomp) {
+      const p = this.player;
+      p.vel.y = -520;
+      p.grounded = false;
+    }
+  }
+
   lose() {
     if (this.state !== 'play') return;
-    this.state = 'dead';
     const p = this.player;
+    if (this.spawnPoint) {
+      // Checkpoint: respawn here instead of restarting the room
+      p.pos.set(this.spawnPoint.x, this.spawnPoint.y);
+      p.vel.set(0, 0);
+      p.visible = true;
+      this.invulnT = 2;
+      this.game.audio.play('hit');
+      this.game.camera.shake(8, 0.3);
+      this.game.particles.emit(p.cx, p.cy, {
+        count: 16,
+        color: ['#a78bfa', '#ffffff'],
+        vx: [-200, 200],
+        vy: [-260, -40],
+        gravity: 700,
+        life: [0.4, 0.8],
+        size: [2, 6],
+        shape: 'circle',
+      });
+      return;
+    }
+    this.state = 'dead';
     this.game.audio.play('hit');
     this.game.camera.shake(10, 0.4);
     this.game.particles.emit(p.cx, p.cy, {
@@ -1247,6 +1457,13 @@ export class PlayScene extends Scene {
     if (this.state === 'play') {
       const p = this.player;
 
+      // Mercy invulnerability after a checkpoint respawn (player blinks)
+      if (this.invulnT > 0) {
+        this.invulnT -= dt;
+        p.visible = Math.floor(this.invulnT * 12) % 2 === 0;
+        if (this.invulnT <= 0) p.visible = true;
+      }
+
       // Springs bounce the player
       for (const s of this.springs) {
         if (s.active && p.vel.y >= 0 && overlaps(p, s)) {
@@ -1287,19 +1504,77 @@ export class PlayScene extends Scene {
         }
       }
 
-      // Hazards
+      // Hazards: stomp enemies by landing on them, otherwise they hurt
       for (const e of this.enemies) {
-        if (overlaps(p, e)) {
+        if (!e.active || !overlaps(p, e)) continue;
+        const stomp = p.vel.y > 0 && p.pos.y + p.size.y - e.pos.y < e.size.y * 0.65;
+        if (stomp) {
+          this.killEnemy(e, true);
+        } else if (this.invulnT <= 0) {
           this.lose();
           return;
         }
       }
       for (const s of this.spikes) {
         if (s.active && overlaps(p, s)) {
+          if (this.invulnT > 0) continue;
           this.lose();
           return;
         }
       }
+
+      // Checkpoints set the respawn point
+      for (const c of this.checkpoints) {
+        if (!c.activated && overlaps(p, c)) {
+          c.activated = true;
+          this.spawnPoint = {
+            x: c.pos.x + c.size.x / 2 - p.size.x / 2,
+            y: c.pos.y - p.size.y - 4,
+          };
+          this.game.audio.play('powerup');
+          this.game.particles.emit(c.cx, c.cy - 20, {
+            count: 14,
+            color: ['#a78bfa', '#ffffff'],
+            vx: [-120, 120],
+            vy: [-200, -40],
+            life: [0.4, 0.8],
+            size: [2, 5],
+          });
+        }
+      }
+
+      // Bullets: pop on walls, kill enemies, hurt the player
+      for (const b of this.bullets) {
+        if (!b.active) continue;
+        let dead = false;
+        for (const s of this.solids) {
+          if (s.active && overlaps(b, s)) {
+            dead = true;
+            break;
+          }
+        }
+        if (!dead) {
+          for (const e of this.enemies) {
+            if (e.active && overlaps(b, e)) {
+              this.killEnemy(e, false);
+              dead = true;
+              break;
+            }
+          }
+        }
+        if (!dead && b.age > 0.15 && overlaps(b, p)) {
+          dead = true;
+          if (this.invulnT <= 0) {
+            this.lose();
+            return;
+          }
+        }
+        if (dead) {
+          b.active = false;
+          b.visible = false;
+        }
+      }
+      this.bullets = this.bullets.filter((b) => b.active);
 
       // Signs show messages
       for (const s of this.signs) {

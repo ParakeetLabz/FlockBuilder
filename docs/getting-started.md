@@ -127,10 +127,10 @@ multi-room platformers entirely with clicks.
   win/lose, show a message, teleport, spawn coins or enemies, play a particle
   effect. Chain them to make bouncy blobs, score pickups, patrolling turrets,
   keys that talk — whatever you imagine, no code.
-- **PLC (Parakeet Logic Code)** — FlockBuilder's own scripting language. Every
-  actor has a PLC Code tab next to PLC Visual: write rules as text, one per
+- **PLL (Parakeet Labz Language)** — FlockBuilder's own scripting language. Every
+  actor has a PLL Code tab next to PLL Visual: write rules as text, one per
   line (`when timer 1.5 then jump 700`), and Apply. Same rules, your choice
-  of editor.
+  of editor. Full guide: [docs/pll.md](pll.md).
 - **Sprites** — upload a PNG for any actor in its Properties panel.
 - **Labels** — text pinned to the screen (UI layer) for titles and HUD hints.
 - **Prefab Library** — save any object as a reusable prefab and stamp copies.

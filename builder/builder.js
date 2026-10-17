@@ -4,7 +4,7 @@
 // Levels auto-save to localStorage and can be exported as JSON.
 
 import { Game, Scene, Sprite } from '../src/flock.js';
-import { PlayScene, WORLD_W, WORLD_H, validObj, normalizeRooms, parsePLC, rulesToPLC } from './game-objects.js';
+import { PlayScene, WORLD_W, WORLD_H, validObj, normalizeRooms, parsePLL, rulesToPLL } from './game-objects.js';
 
 const STORE_KEY = 'flockbuilder-builder-level-v1';
 const PREFAB_KEY = 'flockbuilder-prefabs-v1';
@@ -24,6 +24,7 @@ const DEFAULTS = {
   sign: { w: 34, h: 44, color: '#d6a35c', message: 'Hello!', label: 'Sign — shows a message when touched.' },
   actor: { w: 40, h: 40, color: '#38bdf8', label: 'Actor — blank slate. Give it rules below and it comes alive.' },
   label: { w: 140, h: 30, color: '#ffffff', text: 'Hello!', size: 20, label: 'Label — text pinned to the screen (UI layer).' },
+  checkpoint: { w: 40, h: 64, color: '#a78bfa', label: 'Checkpoint — touch to set your respawn point.' },
 };
 
 const TOOL_HINTS = {
@@ -484,13 +485,13 @@ function renderProps() {
       <label class="check"><input id="psol" type="checkbox" ${o.solid ? 'checked' : ''}> Solid (blocks the player)</label>
       <label>Sprite image <input id="pimg" type="file" accept="image/*"></label>
       <div id="imgprev">${o.image ? `<img src="${o.image}" alt="sprite preview" style="max-width:100%;border-radius:6px;display:block;margin-bottom:4px"><button id="pimgdel" type="button">Remove image</button>` : '<span class="muted small">No image — the colored shape is used.</span>'}</div>
-      <div class="tabs"><button id="tab-visual" class="tabbtn active" type="button">PLC Visual</button><button id="tab-code" class="tabbtn" type="button">PLC Code</button></div>
+      <div class="tabs"><button id="tab-visual" class="tabbtn active" type="button">PLL Visual</button><button id="tab-code" class="tabbtn" type="button">PLL Code</button></div>
       <div id="rules-wrap"><h4>Rules <span class="muted small">— when / then</span></h4><div id="rules-list"></div><button id="rule-add" type="button">+ Add rule</button></div>
       <div id="plc-wrap" style="display:none">
         <textarea id="plc-text" rows="11" spellcheck="false" placeholder="when timer 1.5 then jump 700"></textarea>
-        <div class="row"><button id="plc-apply" type="button">Apply PLC</button><button id="plc-revert" type="button">Revert</button></div>
+        <div class="row"><button id="plc-apply" type="button">Apply PLL</button><button id="plc-revert" type="button">Revert</button></div>
         <div id="plc-errors"></div>
-        <p class="muted small">PLC — Parakeet Logic Code. One rule per line:<br><code>when &lt;trigger&gt; then &lt;action&gt;</code><br>e.g. <code>when key E then move right 200</code></p>
+        <p class="muted small">PLL — Parakeet Labz Language. One rule per line:<br><code>when &lt;trigger&gt; then &lt;action&gt;</code><br>e.g. <code>when key E then move right 200</code><br><a href="https://github.com/ParakeetLabz/FlockBuilder/blob/main/docs/pll.md" target="_blank" rel="noopener" style="color:#38bdf8">📖 PLL guide</a></p>
       </div>
     ` : ''}
     <button id="pdel" class="danger">Delete object</button>
@@ -573,11 +574,13 @@ const TRIGGERS = {
   touch: 'Touches the player',
   key: 'Key is pressed',
   timer: 'Every few seconds',
+  score: 'Score reaches',
   destroyed: 'When destroyed',
 };
 const ACTIONS = {
   move: 'Move',
   jump: 'Jump',
+  shoot: 'Shoot',
   destroy: 'Destroy itself',
   score: 'Add score',
   sound: 'Play a sound',
@@ -611,6 +614,9 @@ function triggerParams(r, i) {
   if (r.trigger === 'timer') {
     return numHtml('seconds', i, r.seconds ?? 2, 0.2, 60, 0.1) + ' sec';
   }
+  if (r.trigger === 'score') {
+    return 'reaches ' + numHtml('score', i, r.score ?? 5, 1, 999, 1);
+  }
   return '';
 }
 
@@ -618,6 +624,8 @@ function actionParams(r, i) {
   switch (r.action) {
     case 'move':
       return selHtml('direction', i, RULE_DIRS, r.direction || 'right') + ' ' + numHtml('speed', i, r.speed ?? 200, 0, 1000, 10);
+    case 'shoot':
+      return selHtml('direction', i, RULE_DIRS, r.direction || 'right') + ' ' + numHtml('speed', i, r.speed ?? 500, 100, 1200, 25);
     case 'jump':
       return 'power ' + numHtml('power', i, r.power ?? 600, 100, 1500, 50);
     case 'score':
@@ -723,25 +731,25 @@ function wireActorProps(o) {
     });
   }
 
-  // PLC Visual / PLC Code tabs
+  // PLL Visual / PLL Code tabs
   const showTab = (code) => {
     document.getElementById('rules-wrap').style.display = code ? 'none' : '';
     document.getElementById('plc-wrap').style.display = code ? '' : 'none';
     document.getElementById('tab-visual').classList.toggle('active', !code);
     document.getElementById('tab-code').classList.toggle('active', code);
     if (code) {
-      document.getElementById('plc-text').value = rulesToPLC(o.rules);
+      document.getElementById('plc-text').value = rulesToPLL(o.rules);
       document.getElementById('plc-errors').innerHTML = '';
     }
   };
   document.getElementById('tab-visual').addEventListener('click', () => showTab(false));
   document.getElementById('tab-code').addEventListener('click', () => showTab(true));
   document.getElementById('plc-revert').addEventListener('click', () => {
-    document.getElementById('plc-text').value = rulesToPLC(o.rules);
+    document.getElementById('plc-text').value = rulesToPLL(o.rules);
     document.getElementById('plc-errors').innerHTML = '';
   });
   document.getElementById('plc-apply').addEventListener('click', () => {
-    const { rules, errors } = parsePLC(document.getElementById('plc-text').value);
+    const { rules, errors } = parsePLL(document.getElementById('plc-text').value);
     const errBox = document.getElementById('plc-errors');
     if (errors.length > 0) {
       errBox.innerHTML = errors.map((e) => `<div class="plc-err">Line ${e.line}: ${e.message}</div>`).join('');
@@ -934,7 +942,7 @@ function openFxModal() {
   ];
   openModal(`
     <h2>Particle FX</h2>
-    <p class="muted">Design an effect, save it, then trigger it from any actor with PLC: <code>then fx name</code>.</p>
+    <p class="muted">Design an effect, save it, then trigger it from any actor with PLL: <code>then fx name</code>.</p>
     <canvas id="fx-preview" width="320" height="170" style="width:100%;border-radius:8px;background:#020617;border:1px solid #1e293b"></canvas>
     <div id="fx-controls">
       ${sliders
@@ -1087,8 +1095,10 @@ async function buildStandalone() {
     const res = await fetch(f);
     if (!res.ok) throw new Error('could not load ' + f);
     let code = await res.text();
-    code = code.replace(/^import\b[\s\S]*?\bfrom\s*['"][^'"]*['"];?/gm, '');
-    code = code.replace(/^export\s+/gm, '');
+    code = code
+      .replace(/^import\b[\s\S]*?\bfrom\s*['"][^'"]*['"];?/gm, '')
+      .replace(/\bimport\s*{[^}]*}\s*from\s*['"][^'"]*['"];?/g, '')
+      .replace(/\bexport\s+(?=(?:class|function|const|let|var)\b)/g, '');
     bundle += `\n// ---- ${f} ----\n` + code;
   }
   const data = JSON.stringify({ rooms: editor.rooms, effects: editor.effects }).replace(/</g, '\\u003c');
@@ -1193,8 +1203,12 @@ function sampleRooms() {
   const s1 = makeObj('sign', 0, 0);
   s1.x = 120;
   s1.y = WORLD_H - 40 - s1.h;
-  s1.message = 'Arrows move, Space jumps. Grab coins, dodge red guys, touch the flag!';
+  s1.message = 'Arrows move, Space jumps. Land on red guys to stomp them!';
   r1.push(s1);
+  const cp = makeObj('checkpoint', 0, 0);
+  cp.x = 350;
+  cp.y = WORLD_H - 40 - cp.h;
+  r1.push(cp);
 
   // Room 2 — keys, doors, spikes, moving platforms
   const r2 = [];
@@ -1249,6 +1263,18 @@ function sampleRooms() {
   s3.y = 300 - s3.h;
   s3.message = 'The blue blob runs on RULES — select it and check Properties!';
   r2.push(s3);
+  // A shooter: press E to fire bullets (they pop red guys)
+  const shooter = makeObj('actor', 0, 0);
+  shooter.x = 390;
+  shooter.y = 180;
+  shooter.gravity = false;
+  shooter.rules = [{ trigger: 'key', key: 'KeyE', action: 'shoot', direction: 'right', speed: 600 }];
+  r2.push(shooter);
+  const s4 = makeObj('sign', 0, 0);
+  s4.x = 20;
+  s4.y = 300 - s4.h;
+  s4.message = 'Press E to shoot! Bullets pop red guys.';
+  r2.push(s4);
 
   return [
     { name: 'Room 1', objects: r1 },
