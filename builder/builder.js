@@ -14,7 +14,7 @@ const DEFAULTS = {
   player: { w: 36, h: 46, color: '#22d3ee', label: 'Player — you. Arrows/AD to move, Space to jump.' },
   wall: { w: 140, h: 30, color: '#475569', label: 'Wall — solid platform.' },
   coin: { w: 26, h: 26, color: '#fde047', label: 'Coin — collect for points.' },
-  enemy: { w: 38, h: 38, color: '#ef4444', range: 160, speed: 130, label: 'Enemy — patrols, avoid it.' },
+  enemy: { w: 38, h: 38, color: '#ef4444', range: 160, speed: 130, hp: 1, label: 'Enemy — patrols. Stomp it!' },
   goal: { w: 54, h: 70, color: '#22c55e', label: 'Goal — reach the flag for the next room.' },
   platform: { w: 120, h: 24, color: '#8b5cf6', range: 200, speed: 100, axis: 'x', label: 'Moving platform — rides you along.' },
   spikes: { w: 80, h: 24, color: '#f97316', label: 'Spikes — ouch.' },
@@ -261,6 +261,7 @@ function makeObj(type, cx, cy) {
   if (type === 'enemy') {
     o.range = d.range;
     o.speed = d.speed;
+    o.hp = d.hp ?? 1;
   } else if (type === 'platform') {
     o.range = d.range;
     o.speed = d.speed;
@@ -1247,7 +1248,7 @@ function defaultRooms() {
   const p = makeObj('player', 0, 0);
   p.x = 60;
   p.y = WORLD_H - 40 - p.h;
-  return [{ name: 'Room 1', objects: [wall(0, WORLD_H - 40, WORLD_W, 40), p] }];
+  return [{ name: 'Room 1', theme: 'day', objects: [wall(0, WORLD_H - 40, WORLD_W, 40), p] }];
 }
 
 function sampleRooms() {
@@ -1297,7 +1298,7 @@ function sampleRooms() {
   const t1 = mk('actor', 620, 200); t1.gravity = false;
   t1.rules = [{ trigger: 'timer', seconds: 1.8, action: 'shoot', direction: 'toward', speed: 350 }];
   r2.push(t1);
-  const s3 = mk('sign', 60, G - 44); s3.message = 'Turrets shoot back — keep moving!'; r2.push(s3);
+  const s3 = mk('sign', 60, G - 44); s3.message = 'A turret guards the cliffs — keep moving!'; r2.push(s3);
   const s4 = mk('sign', 700, G - 44); s4.message = 'Jump the gaps!'; r2.push(s4);
   const l2 = mk('label', 20, 16); l2.text = '🌇 Sunset Cliffs'; l2.size = 28; r2.push(l2);
   for (const [dx, v] of [[100, 'grass'], [250, 'rock'], [640, 'rock'], [850, 'grass']]) {
@@ -1380,9 +1381,13 @@ importInput.addEventListener('change', () => {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const rooms = normalizeRooms(JSON.parse(reader.result));
+      const data = JSON.parse(reader.result);
+      const rooms = normalizeRooms(data);
       if (!rooms) throw new Error('bad file');
       editor.rooms = rooms;
+      if (data.effects && typeof data.effects === 'object' && !Array.isArray(data.effects)) {
+        editor.effects = data.effects;
+      }
       editor.roomIndex = 0;
       editor.selectedId = null;
       afterEdit();

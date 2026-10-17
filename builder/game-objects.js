@@ -173,9 +173,11 @@ export function normalizeRooms(data) {
       return objects.length > 0 ? [{ name: 'Room 1', objects }] : null;
     }
     if (Array.isArray(data.rooms)) {
+      const THEMES = ['day', 'sunset', 'night', 'cave'];
       const rooms = data.rooms
         .map((r, i) => ({
           name: typeof r.name === 'string' && r.name ? r.name.slice(0, 24) : `Room ${i + 1}`,
+          theme: THEMES.includes(r.theme) ? r.theme : 'day',
           objects: Array.isArray(r.objects) ? r.objects.filter(validObj) : [],
         }))
         .filter((r) => r.objects.length > 0);
@@ -307,10 +309,12 @@ export class Enemy extends Sprite {
     this.hp = o.hp ?? 1;
     this.maxHp = this.hp;
     this.flash = 0;
+    this.stompCd = 0; // grace after a non-killing stomp so the bounce doesn't kill you
   }
 
   update(dt) {
     if (this.flash > 0) this.flash -= dt;
+    if (this.stompCd > 0) this.stompCd -= dt;
     this.pos.x += this.dir * this.speed * dt;
     if (this.pos.x >= this.originX + this.range) {
       this.pos.x = this.originX + this.range;
@@ -1655,6 +1659,9 @@ export class PlayScene extends Scene {
       const p = this.player;
       p.vel.y = -520;
       p.grounded = false;
+      // Brief grace so the bounce itself can't hurt you, but shorter than
+      // the bounce airtime (~0.47s) so landing back on top stomps again.
+      e.stompCd = 0.3;
     }
   }
 
@@ -1795,7 +1802,7 @@ export class PlayScene extends Scene {
 
       // Hazards: stomp enemies by landing on them, otherwise they hurt
       for (const e of this.enemies) {
-        if (!e.active || !overlaps(p, e)) continue;
+        if (!e.active || e.stompCd > 0 || !overlaps(p, e)) continue;
         const stomp = p.vel.y > 0 && p.pos.y + p.size.y - e.pos.y < e.size.y * 0.65;
         if (stomp) {
           this.hitEnemy(e, true);
