@@ -1096,6 +1096,8 @@ function startPlay(roomIndex) {
   document.body.classList.add('playing');
   playBtn.innerHTML = '⏹ Stop';
   playBtn.classList.add('stop');
+  // Drop keyboard focus so Space (jump) doesn't re-trigger the button
+  if (document.activeElement) document.activeElement.blur();
   const scene = new PlayScene(game, editor.rooms, roomIndex, editor.effects);
   scene.debug = editor.debug;
   scene.onRestart = () => {

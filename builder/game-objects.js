@@ -1518,9 +1518,14 @@ export class PlayScene extends Scene {
     return x - Math.floor(x);
   }
 
-  // Painted sky per room theme, drawn in world space behind everything.
+  // Painted sky per room theme. Drawn relative to the camera (like a real
+  // infinitely-distant background) so the sun, moon and stars stay in view.
   drawThemeSky(ctx) {
-    const g = ctx.createLinearGradient(0, -40, 0, 580);
+    const cam = this.game.camera;
+    const cp = (cam && cam.pos) || { x: 0, y: 0 };
+    const ox = cp.x;
+    const oy = cp.y;
+    const g = ctx.createLinearGradient(0, oy - 40, 0, oy + 580);
     if (this.theme === 'sunset') {
       g.addColorStop(0, '#7c3aed');
       g.addColorStop(0.55, '#f97316');
@@ -1537,64 +1542,67 @@ export class PlayScene extends Scene {
     }
     ctx.save();
     ctx.fillStyle = g;
-    ctx.fillRect(-60, -60, 1080, 660);
+    ctx.fillRect(ox - 60, oy - 60, 1080, 660);
     if (this.theme === 'day' || this.theme === 'sunset') {
-      // Sun
-      const sy = this.theme === 'day' ? 90 : 400;
+      // Sun (pinned to the view)
+      const sy = oy + (this.theme === 'day' ? 90 : 400);
+      const sx = ox + 830;
       const sr = this.theme === 'day' ? 42 : 70;
       ctx.fillStyle = 'rgba(253,224,71,0.35)';
       ctx.beginPath();
-      ctx.arc(830, sy, sr * 1.6, 0, TAU);
+      ctx.arc(sx, sy, sr * 1.6, 0, TAU);
       ctx.fill();
       ctx.fillStyle = '#fde047';
       ctx.beginPath();
-      ctx.arc(830, sy, sr, 0, TAU);
+      ctx.arc(sx, sy, sr, 0, TAU);
       ctx.fill();
       // Drifting clouds
       ctx.fillStyle = 'rgba(255,255,255,0.9)';
       for (let i = 0; i < 3; i++) {
         const bx = this._srand(i + 1) * 900;
-        const by = 40 + this._srand(i + 11) * 140;
-        const dx = ((bx + this.time * 12) % 1100) - 70;
+        const by = oy + 40 + this._srand(i + 11) * 140;
+        const dx = ox + ((bx + this.time * 12) % 1100) - 70;
         const r = 22 + this._srand(i + 21) * 14;
-        for (const [ox, oy, s] of [[-0.9, 0.15, 0.75], [0, 0, 1], [0.9, 0.15, 0.7]]) {
+        for (const [px, py, s] of [[-0.9, 0.15, 0.75], [0, 0, 1], [0.9, 0.15, 0.7]]) {
           ctx.beginPath();
-          ctx.arc(dx + ox * r, by + oy * r, r * s, 0, TAU);
+          ctx.arc(dx + px * r, by + py * r, r * s, 0, TAU);
           ctx.fill();
         }
       }
     } else if (this.theme === 'night') {
       // Stars
       for (let i = 0; i < 70; i++) {
-        const sx = this._srand(i + 1) * 960;
-        const sy = this._srand(i + 71) * 420;
+        const sx = ox + this._srand(i + 1) * 960;
+        const sy = oy + this._srand(i + 71) * 420;
         const tw = 0.4 + 0.6 * Math.abs(Math.sin(this.time * 1.5 + i));
         ctx.fillStyle = `rgba(255,255,255,${(0.25 + tw * 0.6).toFixed(2)})`;
         const sr = 1 + this._srand(i + 141) * 1.6;
         ctx.fillRect(sx, sy, sr, sr);
       }
-      // Moon
+      // Moon (pinned to the view)
+      const mx = ox + 830;
+      const my = oy + 90;
       ctx.fillStyle = '#e2e8f0';
       ctx.beginPath();
-      ctx.arc(830, 90, 34, 0, TAU);
+      ctx.arc(mx, my, 34, 0, TAU);
       ctx.fill();
       ctx.fillStyle = '#cbd5e1';
-      for (const [ox, oy, r] of [[-10, -6, 7], [8, 8, 5], [4, -12, 4]]) {
+      for (const [cx2, cy2, r] of [[-10, -6, 7], [8, 8, 5], [4, -12, 4]]) {
         ctx.beginPath();
-        ctx.arc(830 + ox, 90 + oy, r, 0, TAU);
+        ctx.arc(mx + cx2, my + cy2, r, 0, TAU);
         ctx.fill();
       }
     } else if (this.theme === 'cave') {
       // Stalactites
       ctx.fillStyle = '#292524';
       for (let i = 0; i < 9; i++) {
-        const sx = this._srand(i + 1) * 960;
+        const sx = ox + this._srand(i + 1) * 960;
         const sw = 26 + this._srand(i + 11) * 30;
         const sh = 40 + this._srand(i + 21) * 90;
         ctx.beginPath();
-        ctx.moveTo(sx - sw / 2, -60);
-        ctx.lineTo(sx + sw / 2, -60);
-        ctx.lineTo(sx, -60 + sh);
+        ctx.moveTo(sx - sw / 2, oy - 60);
+        ctx.lineTo(sx + sw / 2, oy - 60);
+        ctx.lineTo(sx, oy - 60 + sh);
         ctx.closePath();
         ctx.fill();
       }
