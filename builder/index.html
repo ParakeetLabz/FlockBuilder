@@ -107,6 +107,28 @@
     margin-top: 16px; width: 100%; border-color: #7f1d1d; color: #fca5a5;
   }
   #props .danger:hover { border-color: #ef4444; background: #450a0a; }
+  #props .check { display: flex; align-items: center; gap: 8px; }
+  #props .check input { width: auto; }
+  #rules-wrap { margin-top: 14px; border-top: 1px solid #1e293b; padding-top: 10px; }
+  #rules-wrap h4 { font-size: 14px; color: #38bdf8; margin-bottom: 8px; }
+  .rule {
+    background: #0f172a; border: 1px solid #1e293b; border-radius: 8px;
+    padding: 8px; margin-bottom: 8px; position: relative;
+  }
+  .rule-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; color: #94a3b8; flex-wrap: wrap; }
+  .rule-row:last-of-type { margin-bottom: 0; }
+  .rule-row b { color: #e2e8f0; font-size: 11px; }
+  .rule select, .rule input[type="number"], .rule input[type="text"] {
+    background: #020617; border: 1px solid #334155; color: #e2e8f0;
+    border-radius: 6px; padding: 4px 6px; font-size: 12px;
+  }
+  .rule input[type="number"] { width: 62px; }
+  .rule .rule-x {
+    position: absolute; top: 2px; right: 4px; border: none; background: none;
+    color: #64748b; font-size: 16px; padding: 2px 6px;
+  }
+  .rule .rule-x:hover { color: #f87171; }
+  #rule-add { width: 100%; margin-top: 4px; }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .back { color: #22d3ee; text-decoration: none; font-size: 13px; }
   .back:hover { text-decoration: underline; }
@@ -139,6 +161,7 @@
       <button data-tool="coin"><span class="dot" style="background:#fde047;border-radius:50%"></span>Coin</button>
       <button data-tool="enemy"><span class="dot" style="background:#ef4444"></span>Enemy</button>
       <button data-tool="goal"><span class="dot" style="background:#22c55e"></span>Goal</button>
+      <button data-tool="actor"><span class="dot" style="background:#38bdf8"></span>Actor</button>
       <button data-tool="platform"><span class="dot" style="background:#8b5cf6"></span>Platform</button>
       <button data-tool="spikes"><span class="dot" style="background:#f97316"></span>Spikes</button>
       <button data-tool="spring"><span class="dot" style="background:#a3e635"></span>Spring</button>

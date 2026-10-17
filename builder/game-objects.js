@@ -20,7 +20,7 @@ export const WORLD_H = 540;
 // Every object type the builder can place.
 export const OBJECT_TYPES = [
   'player', 'wall', 'coin', 'enemy', 'goal',
-  'platform', 'spikes', 'spring', 'key', 'door', 'sign',
+  'platform', 'spikes', 'spring', 'key', 'door', 'sign', 'actor',
 ];
 
 export function validObj(o) {
@@ -590,6 +590,159 @@ export class Goal extends Entity {
   }
 }
 
+// ---------------------------------------------------------------- Actor ---
+// The GameMaker-style object: a blank slate driven entirely by visual rules.
+// A rule is { trigger, ...triggerParams, action, ...actionParams }:
+//
+//   triggers: 'start' | 'touch' (player) | 'key' | 'timer' | 'destroyed'
+//   actions:  'move' | 'jump' | 'destroy' | 'score' | 'sound' | 'win' |
+//             'lose' | 'message' | 'teleport' | 'spawn'
+
+export class Actor extends Sprite {
+  constructor(o = {}) {
+    super({
+      x: o.x ?? 0,
+      y: o.y ?? 0,
+      w: o.w ?? 40,
+      h: o.h ?? 40,
+      color: o.color ?? '#38bdf8',
+    });
+    this.addTag('actor');
+    this.hasGravity = o.gravity !== false;
+    this.solid = !!o.solid;
+    this.rules = Array.isArray(o.rules) ? o.rules : [];
+    this.timers = this.rules.map(() => 0);
+    this.firedStart = false;
+    this._destroying = false;
+    this.solids = [];
+    this.grounded = false;
+  }
+
+  update(dt, game) {
+    const scene = game.scene;
+    for (let i = 0; i < this.rules.length; i++) {
+      const rule = this.rules[i];
+      if (this.checkTrigger(rule, i, dt, game, scene)) {
+        this.doAction(rule, game, scene);
+        if (!this.active) break; // destroyed mid-update
+      }
+    }
+    if (this.active && this.hasGravity) applyGravity(this, 2200, dt);
+    if (this.active) {
+      const hits = moveAndCollide(this, this.solids, dt);
+      this.grounded = hits.y === 1;
+    }
+    super.update(dt, game);
+  }
+
+  checkTrigger(rule, i, dt, game, scene) {
+    switch (rule.trigger) {
+      case 'start':
+        if (!this.firedStart) {
+          this.firedStart = true;
+          return true;
+        }
+        return false;
+      case 'touch':
+        return !!scene.player && overlaps(this, scene.player);
+      case 'key':
+        return game.input.pressed(rule.key || 'Space');
+      case 'timer':
+        this.timers[i] += dt;
+        if (this.timers[i] >= (rule.seconds || 1)) {
+          this.timers[i] = 0;
+          return true;
+        }
+        return false;
+      default:
+        return false;
+    }
+  }
+
+  doAction(rule, game, scene) {
+    const p = scene.player;
+    switch (rule.action) {
+      case 'move': {
+        const sp = rule.speed ?? 200;
+        const d = rule.direction || 'right';
+        if (d === 'left') this.vel.x = -sp;
+        else if (d === 'right') this.vel.x = sp;
+        else if (d === 'up') this.vel.y = -sp;
+        else if (d === 'down') this.vel.y = sp;
+        else if ((d === 'toward' || d === 'away') && p) {
+          const dx = p.cx - this.cx;
+          const dy = p.cy - this.cy;
+          const l = Math.hypot(dx, dy) || 1;
+          const s = d === 'toward' ? 1 : -1;
+          this.vel.x = (dx / l) * sp * s;
+          this.vel.y = (dy / l) * sp * s;
+        }
+        break;
+      }
+      case 'jump':
+        this.vel.y = -(rule.power ?? 600);
+        this.grounded = false;
+        break;
+      case 'destroy': {
+        if (this._destroying) break;
+        this._destroying = true;
+        for (const r of this.rules) {
+          if (r.trigger === 'destroyed') this.doAction(r, game, scene);
+        }
+        this.active = false;
+        this.visible = false;
+        break;
+      }
+      case 'score':
+        scene.score += rule.amount ?? 1;
+        break;
+      case 'sound':
+        game.audio.play(rule.sound || 'blip');
+        break;
+      case 'win':
+        scene.winGame();
+        break;
+      case 'lose':
+        scene.lose();
+        break;
+      case 'message':
+        scene.message = rule.text || '';
+        scene.messageT = 3;
+        break;
+      case 'teleport':
+        this.pos.x = rule.tx ?? 0;
+        this.pos.y = rule.ty ?? 0;
+        this.vel.set(0, 0);
+        break;
+      case 'spawn':
+        scene.spawnObject(rule.spawn || 'coin', this.cx, this.cy);
+        break;
+      default:
+        break;
+    }
+  }
+
+  draw(ctx) {
+    if (!this.visible) return;
+    const x = this.pos.x;
+    const y = this.pos.y;
+    const w = this.size.x;
+    const h = this.size.y;
+    ctx.save();
+    // Body
+    ctx.fillStyle = this.color;
+    rr(ctx, x, y, w, h, 10);
+    ctx.fill();
+    // Gear badge = "this one runs on rules"
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = `bold ${Math.min(18, h * 0.45)}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⚙', x + w / 2, y + h / 2 + 1);
+    ctx.restore();
+  }
+}
+
 // ---------------------------------------------------------------- Cloud ---
 
 export class Cloud extends Entity {
@@ -642,6 +795,7 @@ export class PlayScene extends Scene {
     this.springs = [];
     this.doors = [];
     this.signs = [];
+    this.actors = [];
     this.goal = null;
     this.onRestart = null; // replay this room
     this.onAdvance = null; // go to next room
@@ -690,6 +844,9 @@ export class PlayScene extends Scene {
         case 'sign':
           this.signs.push(this.add(new Sign(o)));
           break;
+        case 'actor':
+          this.actors.push(this.add(new Actor(o)));
+          break;
         case 'goal':
           this.goal = this.add(new Goal(o));
           break;
@@ -703,7 +860,12 @@ export class PlayScene extends Scene {
     this.keys = this.keys || [];
     if (!playerData) playerData = { x: 60, y: 60, w: 36, h: 46, color: '#22d3ee' };
     this.player = this.add(new Hero(playerData));
+    // Solid actors block the player too
+    for (const a of this.actors) {
+      if (a.solid) this.solids.push(a);
+    }
     this.player.solids = this.solids;
+    for (const a of this.actors) a.solids = this.solids;
     this.coinsTotal = this.coins.length;
 
     for (let i = 0; i < 4; i++) {
@@ -714,6 +876,20 @@ export class PlayScene extends Scene {
 
   get isLastRoom() {
     return this.roomIndex >= this.rooms.length - 1;
+  }
+
+  // Spawn a coin or enemy at a world position (used by the 'spawn' action).
+  spawnObject(type, cx, cy) {
+    if (type === 'enemy') {
+      const e = new Enemy({ x: cx - 19, y: cy - 19 });
+      this.add(e);
+      this.enemies.push(e);
+    } else {
+      const c = new Coin({ x: cx - 13, y: cy - 13 });
+      this.add(c);
+      this.coins.push(c);
+      this.coinsTotal++;
+    }
   }
 
   lose() {

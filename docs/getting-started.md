@@ -120,6 +120,13 @@ multi-room platformers entirely with clicks.
   platform travel/speed/direction, spring bounce power, and sign messages.
 - **Rooms** — build several rooms; the goal flag advances to the next one.
   Double-click a room tab to rename it.
+- **Actors & rules** — the GameMaker-style part: drop an **Actor** (blank slate)
+  and give it visual *WHEN → THEN* rules in the Properties panel. Triggers:
+  on game start, touches player, key pressed, every few seconds, when
+  destroyed. Actions: move, jump, destroy itself, add score, play a sound,
+  win/lose, show a message, teleport, spawn coins or enemies. Chain them to
+  make bouncy blobs, score pickups, patrolling turrets, keys that talk —
+  whatever you imagine, no code.
 - **▶ Play** — test instantly in the same canvas. ESC returns to the editor.
 - **Save/Export/Import** — levels auto-save in your browser; export them as
   JSON to share.

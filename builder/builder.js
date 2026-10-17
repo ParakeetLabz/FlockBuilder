@@ -21,6 +21,7 @@ const DEFAULTS = {
   key: { w: 26, h: 30, color: '#fbbf24', label: 'Key — opens every door in the room.' },
   door: { w: 44, h: 76, color: '#b45309', label: 'Door — solid until you grab a key.' },
   sign: { w: 34, h: 44, color: '#d6a35c', message: 'Hello!', label: 'Sign — shows a message when touched.' },
+  actor: { w: 40, h: 40, color: '#38bdf8', label: 'Actor — blank slate. Give it rules below and it comes alive.' },
 };
 
 const TOOL_HINTS = {
@@ -206,6 +207,10 @@ function makeObj(type, cx, cy) {
     o.power = d.power;
   } else if (type === 'sign') {
     o.message = d.message;
+  } else if (type === 'actor') {
+    o.gravity = true;
+    o.solid = false;
+    o.rules = [];
   }
   return o;
 }
@@ -430,6 +435,11 @@ function renderProps() {
     ${o.type === 'platform' ? `<label>Direction <select id="paxis"><option value="x">Horizontal</option><option value="y">Vertical</option></select></label>` : ''}
     ${o.type === 'spring' ? `<label>Bounce power <span id="ppv">${o.power}</span><input id="pp" type="range" min="600" max="1600" step="50" value="${o.power}"></label>` : ''}
     ${o.type === 'sign' ? `<label>Message<input id="pmsg" type="text" maxlength="120" value="${String(o.message || '').replace(/"/g, '&quot;')}"></label>` : ''}
+    ${o.type === 'actor' ? `
+      <label class="check"><input id="pgrv" type="checkbox" ${o.gravity !== false ? 'checked' : ''}> Affected by gravity</label>
+      <label class="check"><input id="psol" type="checkbox" ${o.solid ? 'checked' : ''}> Solid (blocks the player)</label>
+      <div id="rules-wrap"><h4>Rules <span class="muted small">— when / then</span></h4><div id="rules-list"></div><button id="rule-add" type="button">+ Add rule</button></div>
+    ` : ''}
     <button id="pdel" class="danger">Delete object</button>
   `;
   const num = (id, key) => {
@@ -481,6 +491,138 @@ function renderProps() {
     });
   }
   document.getElementById('pdel').addEventListener('click', () => deleteObj(o.id));
+
+  if (o.type === 'actor') wireActorProps(o);
+}
+// Visual scripting: WHEN [trigger] THEN [action], no code.
+
+const TRIGGERS = {
+  start: 'On game start',
+  touch: 'Touches the player',
+  key: 'Key is pressed',
+  timer: 'Every few seconds',
+  destroyed: 'When destroyed',
+};
+const ACTIONS = {
+  move: 'Move',
+  jump: 'Jump',
+  destroy: 'Destroy itself',
+  score: 'Add score',
+  sound: 'Play a sound',
+  win: 'Win the game',
+  lose: 'Lose the game',
+  message: 'Show a message',
+  teleport: 'Teleport',
+  spawn: 'Spawn something',
+};
+const RULE_KEYS = ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyF'];
+const RULE_SOUNDS = ['blip', 'jump', 'coin', 'hit', 'powerup', 'boing'];
+const RULE_DIRS = { left: 'Left', right: 'Right', up: 'Up', down: 'Down', toward: 'Toward the player', away: 'Away from player' };
+
+function selHtml(f, i, options, value) {
+  const opts = Object.entries(options)
+    .map(([v, l]) => `<option value="${v}"${v === value ? ' selected' : ''}>${l}</option>`)
+    .join('');
+  return `<select data-i="${i}" data-f="${f}">${opts}</select>`;
+}
+
+function numHtml(f, i, value, min, max, step) {
+  return `<input type="number" data-i="${i}" data-f="${f}" value="${value ?? ''}"${
+    min !== undefined ? ` min="${min}"` : ''
+  }${max !== undefined ? ` max="${max}"` : ''} step="${step || 1}">`;
+}
+
+function triggerParams(r, i) {
+  if (r.trigger === 'key') {
+    return selHtml('key', i, Object.fromEntries(RULE_KEYS.map((k) => [k, k])), r.key || 'Space');
+  }
+  if (r.trigger === 'timer') {
+    return numHtml('seconds', i, r.seconds ?? 2, 0.2, 60, 0.1) + ' sec';
+  }
+  return '';
+}
+
+function actionParams(r, i) {
+  switch (r.action) {
+    case 'move':
+      return selHtml('direction', i, RULE_DIRS, r.direction || 'right') + ' ' + numHtml('speed', i, r.speed ?? 200, 0, 1000, 10);
+    case 'jump':
+      return 'power ' + numHtml('power', i, r.power ?? 600, 100, 1500, 50);
+    case 'score':
+      return '+ ' + numHtml('amount', i, r.amount ?? 1, 1, 100);
+    case 'sound':
+      return selHtml('sound', i, Object.fromEntries(RULE_SOUNDS.map((s) => [s, s])), r.sound || 'blip');
+    case 'message':
+      return `<input type="text" data-i="${i}" data-f="text" value="${String(r.text || '').replace(/"/g, '&quot;')}" maxlength="120" style="width:100%">`;
+    case 'teleport':
+      return 'x ' + numHtml('tx', i, r.tx ?? 0, 0, 960, 10) + ' y ' + numHtml('ty', i, r.ty ?? 0, 0, 540, 10);
+    case 'spawn':
+      return selHtml('spawn', i, { coin: 'Coin', enemy: 'Enemy' }, r.spawn || 'coin');
+    default:
+      return '';
+  }
+}
+
+function renderRulesList(o) {
+  const list = document.getElementById('rules-list');
+  if (!list) return;
+  list.innerHTML = '';
+  (o.rules || []).forEach((r, i) => {
+    const row = document.createElement('div');
+    row.className = 'rule';
+    row.innerHTML =
+      `<div class="rule-row"><b>WHEN</b>&nbsp;${selHtml('trigger', i, TRIGGERS, r.trigger)} ${triggerParams(r, i)}</div>` +
+      `<div class="rule-row"><b>THEN</b>&nbsp;${selHtml('action', i, ACTIONS, r.action)} ${actionParams(r, i)}</div>` +
+      `<button class="rule-x" data-i="${i}" title="Delete rule">×</button>`;
+    list.appendChild(row);
+  });
+}
+
+function wireRules(o) {
+  const list = document.getElementById('rules-list');
+  if (!list) return;
+  if (!Array.isArray(o.rules)) o.rules = [];
+  list.addEventListener('change', (e) => {
+    const t = e.target;
+    if (!t.dataset || !('i' in t.dataset)) return;
+    const i = +t.dataset.i;
+    const f = t.dataset.f;
+    let v = t.value;
+    if (t.type === 'number') {
+      v = parseFloat(v);
+      if (Number.isNaN(v)) v = 0;
+    }
+    o.rules[i][f] = v;
+    if (f === 'trigger' || f === 'action') renderRulesList(o); // parameter fields changed
+    save();
+  });
+  list.addEventListener('click', (e) => {
+    const x = e.target.closest('.rule-x');
+    if (x) {
+      o.rules.splice(+x.dataset.i, 1);
+      renderRulesList(o);
+      save();
+    }
+  });
+  document.getElementById('rule-add').addEventListener('click', () => {
+    o.rules.push({ trigger: 'touch', action: 'destroy' });
+    renderRulesList(o);
+    save();
+  });
+}
+
+function wireActorProps(o) {
+  document.getElementById('pgrv').addEventListener('change', (e) => {
+    o.gravity = e.target.checked;
+    save();
+  });
+  document.getElementById('psol').addEventListener('change', (e) => {
+    o.solid = e.target.checked;
+    refreshEditor();
+    save();
+  });
+  renderRulesList(o);
+  wireRules(o);
 }
 
 // ------------------------------------------------------------------ play
@@ -607,6 +749,22 @@ function sampleRooms() {
   s2.y = 300 - s2.h;
   s2.message = 'Grab the key to open the door. Watch the spikes!';
   r2.push(s2);
+  // A scripted actor: bounces on a timer, gives bonus points when touched
+  const blob = makeObj('actor', 0, 0);
+  blob.x = 250;
+  blob.y = 300 - blob.h;
+  blob.rules = [
+    { trigger: 'timer', seconds: 1.6, action: 'jump', power: 750 },
+    { trigger: 'touch', action: 'score', amount: 5 },
+    { trigger: 'touch', action: 'destroy' },
+    { trigger: 'destroyed', action: 'sound', sound: 'coin' },
+  ];
+  r2.push(blob);
+  const s3 = makeObj('sign', 0, 0);
+  s3.x = 330;
+  s3.y = 300 - s3.h;
+  s3.message = 'The blue blob runs on RULES — select it and check Properties!';
+  r2.push(s3);
 
   return [
     { name: 'Room 1', objects: r1 },
