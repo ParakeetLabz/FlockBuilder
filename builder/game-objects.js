@@ -21,8 +21,132 @@ export const WORLD_H = 540;
 export const OBJECT_TYPES = [
   'player', 'wall', 'coin', 'enemy', 'goal',
   'platform', 'spikes', 'spring', 'key', 'door', 'sign', 'actor', 'label',
-  'checkpoint',
+  'checkpoint', 'decor',
 ];
+
+// ---------------------------------------------------------------- Decor --
+// Pure decoration: flowers, grass, bushes, rocks, clouds, stars. No
+// collision, no gameplay — just makes rooms feel alive.
+
+export const DECOR_VARIANTS = ['flower', 'grass', 'bush', 'rock', 'cloud', 'star'];
+
+export class Decor extends Entity {
+  constructor(o = {}) {
+    super({ x: o.x ?? 0, y: o.y ?? 0, w: o.w ?? 40, h: o.h ?? 40 });
+    this.addTag('decor');
+    this.variant = DECOR_VARIANTS.includes(o.variant) ? o.variant : 'flower';
+    this.t = Math.random() * 10;
+    this.seed = Math.random() * 1000;
+  }
+
+  update(dt, game) {
+    this.t += dt;
+    super.update(dt, game);
+  }
+
+  draw(ctx) {
+    if (!this.visible) return;
+    const x = this.pos.x;
+    const y = this.pos.y;
+    const w = this.size.x;
+    const h = this.size.y;
+    const cx = x + w / 2;
+    ctx.save();
+    if (this.variant === 'flower') {
+      const sway = Math.sin(this.t * 2 + this.seed) * 2;
+      ctx.strokeStyle = '#16a34a';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx, y + h);
+      ctx.quadraticCurveTo(cx + sway, y + h * 0.5, cx + sway * 1.5, y + h * 0.25);
+      ctx.stroke();
+      const fx = cx + sway * 1.5;
+      const fy = y + h * 0.22;
+      const pr = Math.min(w, h) * 0.16;
+      ctx.fillStyle = '#f9a8d4';
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * TAU - Math.PI / 2;
+        ctx.beginPath();
+        ctx.arc(fx + Math.cos(a) * pr * 1.4, fy + Math.sin(a) * pr * 1.4, pr, 0, TAU);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.arc(fx, fy, pr * 0.9, 0, TAU);
+      ctx.fill();
+    } else if (this.variant === 'grass') {
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      const blades = 5;
+      for (let i = 0; i < blades; i++) {
+        const bx = x + (i / (blades - 1)) * w;
+        const sway = Math.sin(this.t * 2.5 + this.seed + i) * 3;
+        const bh = h * (0.5 + ((i * 37 + this.seed) % 40) / 100);
+        ctx.beginPath();
+        ctx.moveTo(bx, y + h);
+        ctx.quadraticCurveTo(bx + sway, y + h - bh * 0.6, bx + sway * 1.6, y + h - bh);
+        ctx.stroke();
+      }
+    } else if (this.variant === 'bush') {
+      ctx.fillStyle = '#16a34a';
+      const r = Math.min(w, h) / 2.6;
+      for (const [ox, oy, s] of [[-0.25, 0.1, 1], [0, -0.1, 1.25], [0.25, 0.1, 1]]) {
+        ctx.beginPath();
+        ctx.arc(cx + ox * w, y + h * 0.55 + oy * h, r * s, 0, TAU);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#4ade80';
+      ctx.beginPath();
+      ctx.arc(cx - w * 0.12, y + h * 0.42, r * 0.45, 0, TAU);
+      ctx.fill();
+    } else if (this.variant === 'rock') {
+      ctx.fillStyle = '#78716c';
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.1, y + h);
+      ctx.lineTo(x + w * 0.25, y + h * 0.35);
+      ctx.lineTo(x + w * 0.6, y + h * 0.15);
+      ctx.lineTo(x + w * 0.9, y + h * 0.5);
+      ctx.lineTo(x + w * 0.95, y + h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#a8a29e';
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.25, y + h * 0.35);
+      ctx.lineTo(x + w * 0.6, y + h * 0.15);
+      ctx.lineTo(x + w * 0.72, y + h * 0.45);
+      ctx.lineTo(x + w * 0.4, y + h * 0.55);
+      ctx.closePath();
+      ctx.fill();
+    } else if (this.variant === 'cloud') {
+      const drift = Math.sin(this.t * 0.4 + this.seed) * 6;
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      const r = h * 0.28;
+      for (const [ox, oy, s] of [[-0.3, 0.1, 0.8], [0, -0.05, 1.1], [0.3, 0.1, 0.85]]) {
+        ctx.beginPath();
+        ctx.arc(cx + drift + ox * w, y + h * 0.5 + oy * h, r * s, 0, TAU);
+        ctx.fill();
+      }
+    } else if (this.variant === 'star') {
+      const tw = 0.5 + 0.5 * Math.sin(this.t * 3 + this.seed);
+      ctx.fillStyle = `rgba(253,224,71,${0.35 + tw * 0.6})`;
+      const r1 = Math.min(w, h) * 0.32;
+      const r2 = r1 * 0.45;
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const r = i % 2 === 0 ? r1 : r2;
+        const a = (i / 10) * TAU - Math.PI / 2;
+        const px = cx + Math.cos(a) * r;
+        const py = y + h / 2 + Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
 
 export function validObj(o) {
   return (
@@ -180,9 +304,13 @@ export class Enemy extends Sprite {
     this.range = o.range ?? 160;
     this.speed = o.speed ?? 130;
     this.dir = 1;
+    this.hp = o.hp ?? 1;
+    this.maxHp = this.hp;
+    this.flash = 0;
   }
 
   update(dt) {
+    if (this.flash > 0) this.flash -= dt;
     this.pos.x += this.dir * this.speed * dt;
     if (this.pos.x >= this.originX + this.range) {
       this.pos.x = this.originX + this.range;
@@ -240,6 +368,23 @@ export class Enemy extends Sprite {
     ctx.moveTo(x + w * 0.82, y + h * 0.16);
     ctx.lineTo(x + w * 0.58, y + h * 0.27);
     ctx.stroke();
+    // Hit flash
+    if (this.flash > 0) {
+      ctx.globalAlpha = Math.min(1, this.flash * 6);
+      ctx.fillStyle = '#ffffff';
+      rr(ctx, x, y, w, h, 9);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // HP pips for tough enemies (bosses)
+    if (this.maxHp > 1) {
+      for (let i = 0; i < this.maxHp; i++) {
+        ctx.fillStyle = i < this.hp ? '#fca5a5' : 'rgba(0,0,0,0.35)';
+        ctx.beginPath();
+        ctx.arc(x + 8 + (i * (w - 16)) / (this.maxHp - 1), y - 8, 4, 0, TAU);
+        ctx.fill();
+      }
+    }
     ctx.restore();
   }
 }
@@ -679,6 +824,15 @@ export class Actor extends Sprite {
         }
         return false;
       }
+      case 'cleared': {
+        // Fires once when every enemy in the room is beaten
+        this._clearedFlag = this._clearedFlag || {};
+        if (!this._clearedFlag[i] && scene.enemies.length > 0 && scene.enemies.every((e) => !e.active)) {
+          this._clearedFlag[i] = true;
+          return true;
+        }
+        return false;
+      }
       default:
         return false;
     }
@@ -949,6 +1103,9 @@ function pllParseTrigger(src, lineNo, errors) {
     }
     return { trigger: 'timer', seconds };
   }
+  if (head === 'cleared' && parts.length === 1) {
+    return { trigger: 'cleared' };
+  }
   if (head === 'score' && parts.length === 2) {
     const at = parseInt(parts[1], 10);
     if (!Number.isFinite(at) || at < 1) {
@@ -959,7 +1116,7 @@ function pllParseTrigger(src, lineNo, errors) {
   }
   errors.push({
     line: lineNo,
-    message: `unknown trigger "${src}" — try: start, touch player, destroyed, key E, timer 1.5, score 10`,
+    message: `unknown trigger "${src}" — try: start, touch player, destroyed, key E, timer 1.5, score 10, cleared`,
   });
   return null;
 }
@@ -1110,6 +1267,9 @@ export function rulesToPLL(rules) {
         case 'score':
           t = `when score ${r.score ?? 5}`;
           break;
+        case 'cleared':
+          t = 'when cleared';
+          break;
         default:
           t = 'when start';
       }
@@ -1194,13 +1354,18 @@ export class Cloud extends Entity {
 export class PlayScene extends Scene {
   constructor(game, rooms, startIndex = 0, effects = {}) {
     super(game);
-    this.bg = '#7dd3fc';
     this.rooms = rooms;
     this.roomIndex = startIndex;
+    const room = rooms[startIndex] || {};
+    this.theme = room.theme || 'day';
+    const THEME_BG = { day: '#7dd3fc', sunset: '#fb923c', night: '#0f172a', cave: '#1c1917' };
+    this.bg = THEME_BG[this.theme] || THEME_BG.day;
     this.effects = effects || {};
     this.debug = false;
-    this.roomName = rooms[startIndex] ? rooms[startIndex].name || `Room ${startIndex + 1}` : '';
+    this.time = 0;
+    this.fadeT = 1; // fade in from black on room enter
     this.bannerT = 2.2; // "Room N" intro banner
+    this.roomName = room.name || `Room ${startIndex + 1}`;
     this.state = 'play'; // play | win | dead
     this.score = 0;
     this.hasKey = false;
@@ -1282,6 +1447,9 @@ export class PlayScene extends Scene {
         case 'checkpoint':
           this.checkpoints.push(this.add(new Checkpoint(o)));
           break;
+        case 'decor':
+          this.add(new Decor(o)); // no collision, just looks nice
+          break;
         case 'goal':
           this.goal = this.add(new Goal(o));
           break;
@@ -1344,6 +1512,101 @@ export class PlayScene extends Scene {
     });
   }
 
+  // Seeded pseudo-random 0..1 for stable theme decorations.
+  _srand(i) {
+    const x = Math.sin(i * 127.1 + this.roomIndex * 311.7) * 43758.5453;
+    return x - Math.floor(x);
+  }
+
+  // Painted sky per room theme, drawn in world space behind everything.
+  drawThemeSky(ctx) {
+    const g = ctx.createLinearGradient(0, -40, 0, 580);
+    if (this.theme === 'sunset') {
+      g.addColorStop(0, '#7c3aed');
+      g.addColorStop(0.55, '#f97316');
+      g.addColorStop(1, '#fdba74');
+    } else if (this.theme === 'night') {
+      g.addColorStop(0, '#020617');
+      g.addColorStop(1, '#312e81');
+    } else if (this.theme === 'cave') {
+      g.addColorStop(0, '#0c0a09');
+      g.addColorStop(1, '#44403c');
+    } else {
+      g.addColorStop(0, '#38bdf8');
+      g.addColorStop(1, '#e0f2fe');
+    }
+    ctx.save();
+    ctx.fillStyle = g;
+    ctx.fillRect(-60, -60, 1080, 660);
+    if (this.theme === 'day' || this.theme === 'sunset') {
+      // Sun
+      const sy = this.theme === 'day' ? 90 : 400;
+      const sr = this.theme === 'day' ? 42 : 70;
+      ctx.fillStyle = 'rgba(253,224,71,0.35)';
+      ctx.beginPath();
+      ctx.arc(830, sy, sr * 1.6, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.arc(830, sy, sr, 0, TAU);
+      ctx.fill();
+      // Drifting clouds
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      for (let i = 0; i < 3; i++) {
+        const bx = this._srand(i + 1) * 900;
+        const by = 40 + this._srand(i + 11) * 140;
+        const dx = ((bx + this.time * 12) % 1100) - 70;
+        const r = 22 + this._srand(i + 21) * 14;
+        for (const [ox, oy, s] of [[-0.9, 0.15, 0.75], [0, 0, 1], [0.9, 0.15, 0.7]]) {
+          ctx.beginPath();
+          ctx.arc(dx + ox * r, by + oy * r, r * s, 0, TAU);
+          ctx.fill();
+        }
+      }
+    } else if (this.theme === 'night') {
+      // Stars
+      for (let i = 0; i < 70; i++) {
+        const sx = this._srand(i + 1) * 960;
+        const sy = this._srand(i + 71) * 420;
+        const tw = 0.4 + 0.6 * Math.abs(Math.sin(this.time * 1.5 + i));
+        ctx.fillStyle = `rgba(255,255,255,${(0.25 + tw * 0.6).toFixed(2)})`;
+        const sr = 1 + this._srand(i + 141) * 1.6;
+        ctx.fillRect(sx, sy, sr, sr);
+      }
+      // Moon
+      ctx.fillStyle = '#e2e8f0';
+      ctx.beginPath();
+      ctx.arc(830, 90, 34, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#cbd5e1';
+      for (const [ox, oy, r] of [[-10, -6, 7], [8, 8, 5], [4, -12, 4]]) {
+        ctx.beginPath();
+        ctx.arc(830 + ox, 90 + oy, r, 0, TAU);
+        ctx.fill();
+      }
+    } else if (this.theme === 'cave') {
+      // Stalactites
+      ctx.fillStyle = '#292524';
+      for (let i = 0; i < 9; i++) {
+        const sx = this._srand(i + 1) * 960;
+        const sw = 26 + this._srand(i + 11) * 30;
+        const sh = 40 + this._srand(i + 21) * 90;
+        ctx.beginPath();
+        ctx.moveTo(sx - sw / 2, -60);
+        ctx.lineTo(sx + sw / 2, -60);
+        ctx.lineTo(sx, -60 + sh);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  draw(ctx) {
+    this.drawThemeSky(ctx);
+    super.draw(ctx);
+  }
+
   // Fire a bullet from a world position.
   spawnBullet(x, y, vx, vy) {
     const b = new Bullet(x, y, vx, vy);
@@ -1351,22 +1614,35 @@ export class PlayScene extends Scene {
     this.bullets.push(b);
   }
 
-  // Defeat an enemy (stomped or shot). Stomping bounces the player.
-  killEnemy(e, stomp) {
+  // Damage an enemy (stomped or shot). Enemies have HP — bosses take
+  // multiple hits. Stomping always bounces the player.
+  hitEnemy(e, stomp) {
     if (!e.active) return;
-    e.active = false;
-    e.visible = false;
-    this.score += 1;
-    this.game.audio.play('blip');
-    this.game.particles.emit(e.cx, e.cy, {
-      count: 12,
-      color: ['#ef4444', '#fca5a5'],
-      vx: [-180, 180],
-      vy: [-260, -40],
-      gravity: 800,
-      life: [0.4, 0.8],
-      size: [2, 6],
-    });
+    e.hp -= 1;
+    e.flash = 0.18;
+    if (e.hp <= 0) {
+      e.active = false;
+      e.visible = false;
+      this.score += 1;
+      this.game.audio.play('blip');
+      this.game.particles.emit(e.cx, e.cy, {
+        count: 12,
+        color: ['#ef4444', '#fca5a5'],
+        vx: [-180, 180],
+        vy: [-260, -40],
+        gravity: 800,
+        life: [0.4, 0.8],
+        size: [2, 6],
+      });
+    } else {
+      this.game.audio.play('hit');
+      this.game.camera.shake(4, 0.15);
+      // Knock the player back a little on a non-killing stomp
+      if (stomp && this.player) {
+        const p = this.player;
+        p.vel.x = p.cx < e.cx ? -260 : 260;
+      }
+    }
     if (stomp) {
       const p = this.player;
       p.vel.y = -520;
@@ -1416,8 +1692,11 @@ export class PlayScene extends Scene {
     if (this.state !== 'play') return;
     this.state = 'win';
     const g = this.goal;
+    // Win confetti bursts from the goal flag, or the player if there is none
+    // (e.g. a boss room won via a "when cleared" rule)
+    const fx = g ? { x: g.cx, y: g.cy - 20 } : this.player ? { x: this.player.cx, y: this.player.cy - 20 } : { x: 480, y: 270 };
     this.game.audio.play('powerup');
-    this.game.particles.emit(g.cx, g.cy - 20, {
+    this.game.particles.emit(fx.x, fx.y, {
       count: 40,
       color: ['#22c55e', '#fde047', '#22d3ee', '#f472b6'],
       vx: [-300, 300],
@@ -1447,6 +1726,8 @@ export class PlayScene extends Scene {
 
   update(dt) {
     super.update(dt);
+    this.time += dt;
+    if (this.fadeT > 0) this.fadeT = Math.max(0, this.fadeT - dt * 2.5);
     const input = this.game.input;
     if (this.bannerT > 0) this.bannerT -= dt;
     if (this.messageT > 0) {
@@ -1509,7 +1790,7 @@ export class PlayScene extends Scene {
         if (!e.active || !overlaps(p, e)) continue;
         const stomp = p.vel.y > 0 && p.pos.y + p.size.y - e.pos.y < e.size.y * 0.65;
         if (stomp) {
-          this.killEnemy(e, true);
+          this.hitEnemy(e, true);
         } else if (this.invulnT <= 0) {
           this.lose();
           return;
@@ -1556,7 +1837,7 @@ export class PlayScene extends Scene {
         if (!dead) {
           for (const e of this.enemies) {
             if (e.active && overlaps(b, e)) {
-              this.killEnemy(e, false);
+              this.hitEnemy(e, false);
               dead = true;
               break;
             }
@@ -1745,6 +2026,13 @@ export class PlayScene extends Scene {
       ctx.fillStyle = '#64748b';
       ctx.font = '15px system-ui, sans-serif';
       ctx.fillText('R / click: play again   •   ESC: editor', WORLD_W / 2, py + 140);
+      ctx.restore();
+    }
+    // Fade in from black on room enter
+    if (this.fadeT > 0) {
+      ctx.save();
+      ctx.fillStyle = `rgba(2,6,23,${this.fadeT.toFixed(3)})`;
+      ctx.fillRect(0, 0, WORLD_W, WORLD_H);
       ctx.restore();
     }
   }

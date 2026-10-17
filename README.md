@@ -22,7 +22,7 @@ Made by [Parakeet Labz](https://parakeetlabz.vercel.app) · MIT licensed.
 ## FlockBuilder Studio (no-code game maker)
 
 Open `builder/index.html` — or the 🎮 button on the site — for the visual
-game maker: 12 object types, multiple rooms, drag-and-drop placement,
+game maker: 15 object types, multiple rooms, drag-and-drop placement,
 properties panel, and instant Play mode.
 
 Its GameMaker-style core is **PLL (Parakeet Labz Language)**: actors get

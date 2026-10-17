@@ -1,10 +1,10 @@
 // FlockBuilder — builder/builder.js
-// The visual, code-free Game Builder: multiple rooms, 11 object types,
+// The visual, code-free Game Builder: multiple rooms, 15 object types,
 // click-to-place, drag-to-move, properties panel, instant Play mode.
 // Levels auto-save to localStorage and can be exported as JSON.
 
 import { Game, Scene, Sprite } from '../src/flock.js';
-import { PlayScene, WORLD_W, WORLD_H, validObj, normalizeRooms, parsePLL, rulesToPLL } from './game-objects.js';
+import { PlayScene, WORLD_W, WORLD_H, validObj, normalizeRooms, parsePLL, rulesToPLL, Decor } from './game-objects.js';
 
 const STORE_KEY = 'flockbuilder-builder-level-v1';
 const PREFAB_KEY = 'flockbuilder-prefabs-v1';
@@ -25,6 +25,7 @@ const DEFAULTS = {
   actor: { w: 40, h: 40, color: '#38bdf8', label: 'Actor — blank slate. Give it rules below and it comes alive.' },
   label: { w: 140, h: 30, color: '#ffffff', text: 'Hello!', size: 20, label: 'Label — text pinned to the screen (UI layer).' },
   checkpoint: { w: 40, h: 64, color: '#a78bfa', label: 'Checkpoint — touch to set your respawn point.' },
+  decor: { w: 44, h: 44, color: '#4ade80', variant: 'flower', label: 'Decor — pretty, no collision. Change the style in Properties.' },
 };
 
 const TOOL_HINTS = {
@@ -153,12 +154,19 @@ class EditorScene extends Scene {
       ctx.fillStyle = 'rgba(226,232,240,0.75)';
       ctx.fillText(o.type, o.x + 2, o.y - 4 < 10 ? o.y + 12 : o.y - 4);
     }
-    // Selection outline
+    // Selection outline (glow)
     const sel = objs().find((o) => o.id === editor.selectedId);
     if (sel) {
+      ctx.save();
+      ctx.shadowColor = '#22d3ee';
+      ctx.shadowBlur = 12;
       ctx.strokeStyle = '#22d3ee';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 2.5;
       ctx.strokeRect(sel.x - 4, sel.y - 4, sel.w + 8, sel.h + 8);
+      ctx.restore();
+      // Resize handle
+      ctx.fillStyle = '#22d3ee';
+      ctx.fillRect(sel.x + sel.w - 2, sel.y + sel.h - 2, 10, 10);
     }
     // Hint
     ctx.fillStyle = 'rgba(148,163,184,0.7)';
@@ -203,6 +211,22 @@ function refreshEditor() {
         } else {
           drawShape(ctx);
         }
+      };
+    } else if (o.type === 'decor') {
+      // Preview the decor glyph, like it appears in the game
+      const d = new Decor(o);
+      s.draw = (ctx) => d.draw(ctx);
+    } else if (o.type === 'enemy' && (o.hp ?? 1) > 1) {
+      // Boss badge: show HP above the preview
+      const drawShape = s.draw.bind(s);
+      s.draw = (ctx) => {
+        drawShape(ctx);
+        ctx.save();
+        ctx.fillStyle = '#fca5a5';
+        ctx.font = 'bold 11px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`❤${o.hp}`, o.x + o.w / 2, o.y - 4);
+        ctx.restore();
       };
     }
     editScene.add(s);
@@ -447,6 +471,26 @@ function renderRoomTabs() {
     afterEdit();
   });
   bar.appendChild(add);
+  // Theme picker for the current room
+  const themeWrap = document.createElement('span');
+  themeWrap.className = 'theme-wrap';
+  themeWrap.title = 'Room theme (sky)';
+  const themeSel = document.createElement('select');
+  themeSel.className = 'theme-sel';
+  for (const [v, label] of [['day', '☀️ Day'], ['sunset', '🌇 Sunset'], ['night', '🌙 Night'], ['cave', '🕳️ Cave']]) {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = label;
+    themeSel.appendChild(opt);
+  }
+  themeSel.value = editor.rooms[editor.roomIndex].theme || 'day';
+  themeSel.addEventListener('change', () => {
+    if (editor.playing) return;
+    editor.rooms[editor.roomIndex].theme = themeSel.value;
+    save();
+  });
+  themeWrap.appendChild(themeSel);
+  bar.appendChild(themeWrap);
 }
 
 // ---------------------------------------------------------- properties
@@ -476,6 +520,8 @@ function renderProps() {
     ${o.type === 'platform' ? `<label>Direction <select id="paxis"><option value="x">Horizontal</option><option value="y">Vertical</option></select></label>` : ''}
     ${o.type === 'spring' ? `<label>Bounce power <span id="ppv">${o.power}</span><input id="pp" type="range" min="600" max="1600" step="50" value="${o.power}"></label>` : ''}
     ${o.type === 'sign' ? `<label>Message<input id="pmsg" type="text" maxlength="120" value="${String(o.message || '').replace(/"/g, '&quot;')}"></label>` : ''}
+    ${o.type === 'enemy' ? `<label>HP (hits to beat)<input id="php" type="number" value="${o.hp ?? 1}" min="1" max="20" step="1"></label>` : ''}
+    ${o.type === 'decor' ? `<label>Style <select id="pvariant">${['flower', 'grass', 'bush', 'rock', 'cloud', 'star'].map((v) => `<option value="${v}"${(o.variant || 'flower') === v ? ' selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select></label>` : ''}
     ${o.type === 'label' ? `
       <label>Text<input id="plabel" type="text" maxlength="80" value="${String(o.text || '').replace(/"/g, '&quot;')}"></label>
       <label>Size<input id="psize" type="number" value="${o.size || 20}" min="8" max="72" step="1"></label>
@@ -544,6 +590,25 @@ function renderProps() {
       save();
     });
   }
+  const hpEl = document.getElementById('php');
+  if (hpEl) {
+    hpEl.addEventListener('input', (e) => {
+      const v = parseInt(e.target.value, 10);
+      if (Number.isFinite(v)) {
+        o.hp = Math.max(1, Math.min(20, v));
+        refreshEditor();
+        save();
+      }
+    });
+  }
+  const variantEl = document.getElementById('pvariant');
+  if (variantEl) {
+    variantEl.addEventListener('change', (e) => {
+      o.variant = e.target.value;
+      refreshEditor();
+      save();
+    });
+  }
   const labelEl = document.getElementById('plabel');
   if (labelEl) {
     labelEl.addEventListener('input', (e) => {
@@ -575,6 +640,7 @@ const TRIGGERS = {
   key: 'Key is pressed',
   timer: 'Every few seconds',
   score: 'Score reaches',
+  cleared: 'All enemies beaten',
   destroyed: 'When destroyed',
 };
 const ACTIONS = {
@@ -1166,6 +1232,15 @@ function wall(x, y, w, h, color) {
   return { id: nid(), type: 'wall', x, y, w, h, color: color || DEFAULTS.wall.color };
 }
 
+// mk: like makeObj but with top-left (x, y) instead of centering —
+// handy for laying out the sample game on a grid.
+function mk(type, x, y) {
+  const o = makeObj(type, 0, 0);
+  o.x = snap(x);
+  o.y = snap(y);
+  return o;
+}
+
 function defaultRooms() {
   const p = makeObj('player', 0, 0);
   p.x = 60;
@@ -1174,111 +1249,91 @@ function defaultRooms() {
 }
 
 function sampleRooms() {
-  // Room 1 — basics: platforms, spring, coins, enemy, sign, goal
+  // Pip's Adventure — a 3-room showcase: meadow tutorial, sunset cliffs,
+  // and a night boss fight. Shows off themes, decor, PLL, checkpoints,
+  // stomping, turrets, and the boss's 5 HP.
+  const G = WORLD_H - 40;
+
+  // ------------------------------------------------ Room 1: Sunny Meadow
   const r1 = [];
-  r1.push(wall(0, WORLD_H - 40, WORLD_W, 40));
+  r1.push(wall(0, G, WORLD_W, 40));
   r1.push(wall(150, 410, 150, 24));
   r1.push(wall(380, 330, 150, 24));
   r1.push(wall(620, 410, 150, 24));
-  const p1 = makeObj('player', 0, 0);
-  p1.x = 60;
-  p1.y = WORLD_H - 40 - p1.h;
-  r1.push(p1);
-  const spr = makeObj('spring', 0, 0);
-  spr.x = 300;
-  spr.y = WORLD_H - 40 - spr.h;
-  r1.push(spr);
-  for (const [cx, cy] of [[225, 370], [455, 290], [695, 370], [500, 200]]) {
-    r1.push(makeObj('coin', cx, cy));
+  r1.push(mk('player', 60, G - 46));
+  const spr = mk('spring', 300, G - 24); r1.push(spr);
+  for (const [cx, cy] of [[225, 370], [455, 290], [695, 370], [500, 200]]) r1.push(mk('coin', cx, cy));
+  const e1 = mk('enemy', 480, G - 38); e1.range = 120; r1.push(e1);
+  r1.push(mk('checkpoint', 350, G - 64));
+  r1.push(mk('goal', 870, G - 70));
+  const s1 = mk('sign', 120, G - 44); s1.message = "Welcome to Pip's Adventure! Arrows move, Space jumps."; r1.push(s1);
+  const s2 = mk('sign', 420, G - 44); s2.message = 'Land on red guys to stomp them!'; r1.push(s2);
+  const l1 = mk('label', 20, 16); l1.text = '🌼 Sunny Meadow'; l1.size = 28; r1.push(l1);
+  for (const [dx, v] of [[80, 'flower'], [200, 'grass'], [550, 'flower'], [700, 'bush'], [900, 'grass']]) {
+    const d = mk('decor', dx, G - 40); d.variant = v; r1.push(d);
   }
-  const e1 = makeObj('enemy', 0, 0);
-  e1.x = 480;
-  e1.y = WORLD_H - 40 - e1.h;
-  e1.range = 120;
-  r1.push(e1);
-  const g1 = makeObj('goal', 0, 0);
-  g1.x = 660;
-  g1.y = 410 - g1.h;
-  r1.push(g1);
-  const s1 = makeObj('sign', 0, 0);
-  s1.x = 120;
-  s1.y = WORLD_H - 40 - s1.h;
-  s1.message = 'Arrows move, Space jumps. Land on red guys to stomp them!';
-  r1.push(s1);
-  const cp = makeObj('checkpoint', 0, 0);
-  cp.x = 350;
-  cp.y = WORLD_H - 40 - cp.h;
-  r1.push(cp);
+  for (const [dx, dy] of [[150, 80], [500, 60], [800, 120]]) {
+    const d = mk('decor', dx, dy); d.variant = 'cloud'; r1.push(d);
+  }
 
-  // Room 2 — keys, doors, spikes, moving platforms
+  // ------------------------------------------------ Room 2: Sunset Cliffs
   const r2 = [];
-  r2.push(wall(0, WORLD_H - 40, WORLD_W, 40));
-  r2.push(wall(0, 300, 180, 24));
-  r2.push(wall(780, 300, 180, 24));
-  const p2 = makeObj('player', 0, 0);
-  p2.x = 60;
-  p2.y = 300 - p2.h;
-  r2.push(p2);
-  const plat = makeObj('platform', 0, 0);
-  plat.x = 380;
-  plat.y = 380;
-  plat.range = 200;
-  plat.axis = 'x';
-  r2.push(plat);
-  const key = makeObj('key', 0, 0);
-  key.x = 850;
-  key.y = 300 - key.h - 6;
-  r2.push(key);
-  const door = makeObj('door', 0, 0);
-  door.x = 700;
-  door.y = WORLD_H - 40 - door.h;
-  r2.push(door);
-  const sp = makeObj('spikes', 0, 0);
-  sp.x = 420;
-  sp.y = WORLD_H - 40 - sp.h;
-  sp.w = 160;
-  r2.push(sp);
-  const g2 = makeObj('goal', 0, 0);
-  g2.x = 880;
-  g2.y = WORLD_H - 40 - g2.h;
-  r2.push(g2);
-  const s2 = makeObj('sign', 0, 0);
-  s2.x = 120;
-  s2.y = 300 - s2.h;
-  s2.message = 'Grab the key to open the door. Watch the spikes!';
-  r2.push(s2);
-  // A scripted actor: bounces on a timer, gives bonus points when touched
-  const blob = makeObj('actor', 0, 0);
-  blob.x = 250;
-  blob.y = 300 - blob.h;
-  blob.rules = [
-    { trigger: 'timer', seconds: 1.6, action: 'jump', power: 750 },
-    { trigger: 'touch', action: 'score', amount: 5 },
-    { trigger: 'touch', action: 'destroy' },
-    { trigger: 'destroyed', action: 'sound', sound: 'coin' },
+  r2.push(wall(0, G, 300, 40));
+  r2.push(wall(380, G, 220, 40));
+  r2.push(wall(680, G, 280, 40));
+  r2.push(wall(120, 380, 140, 24));
+  r2.push(wall(420, 300, 140, 24));
+  r2.push(wall(700, 380, 140, 24));
+  r2.push(mk('player', 60, G - 46));
+  r2.push(mk('spikes', 450, G - 24));
+  const e2a = mk('enemy', 150, G - 38); e2a.range = 100; r2.push(e2a);
+  const e2b = mk('enemy', 730, G - 38); e2b.range = 100; r2.push(e2b);
+  r2.push(mk('checkpoint', 400, G - 64));
+  r2.push(mk('goal', 880, G - 70));
+  for (const [cx, cy] of [[190, 340], [490, 260], [770, 340]]) r2.push(mk('coin', cx, cy));
+  // Turret: shoots AT the player on a timer
+  const t1 = mk('actor', 620, 200); t1.gravity = false;
+  t1.rules = [{ trigger: 'timer', seconds: 1.8, action: 'shoot', direction: 'toward', speed: 350 }];
+  r2.push(t1);
+  const s3 = mk('sign', 60, G - 44); s3.message = 'Turrets shoot back — keep moving!'; r2.push(s3);
+  const s4 = mk('sign', 700, G - 44); s4.message = 'Jump the gaps!'; r2.push(s4);
+  const l2 = mk('label', 20, 16); l2.text = '🌇 Sunset Cliffs'; l2.size = 28; r2.push(l2);
+  for (const [dx, v] of [[100, 'grass'], [250, 'rock'], [640, 'rock'], [850, 'grass']]) {
+    const d = mk('decor', dx, G - 40); d.variant = v; r2.push(d);
+  }
+  const dc2 = mk('decor', 300, 70); dc2.variant = 'cloud'; r2.push(dc2);
+
+  // ------------------------------------------------ Room 3: Night Boss
+  const r3 = [];
+  r3.push(wall(0, G, WORLD_W, 40));
+  r3.push(wall(0, 0, 24, G));
+  r3.push(wall(WORLD_W - 24, 0, 24, G));
+  r3.push(mk('player', 80, G - 46));
+  r3.push(mk('checkpoint', 150, G - 64));
+  // The boss: big, fast, 5 HP
+  const boss = mk('enemy', 600, G - 70); boss.w = 70; boss.h = 70; boss.hp = 5;
+  boss.speed = 200; boss.range = 250; r3.push(boss);
+  // Turret guards: one of them declares victory when the room is cleared
+  const t2 = mk('actor', 250, 150); t2.gravity = false;
+  t2.rules = [
+    { trigger: 'timer', seconds: 2.2, action: 'shoot', direction: 'toward', speed: 320 },
+    { trigger: 'cleared', action: 'win' },
   ];
-  r2.push(blob);
-  const s3 = makeObj('sign', 0, 0);
-  s3.x = 330;
-  s3.y = 300 - s3.h;
-  s3.message = 'The blue blob runs on RULES — select it and check Properties!';
-  r2.push(s3);
-  // A shooter: press E to fire bullets (they pop red guys)
-  const shooter = makeObj('actor', 0, 0);
-  shooter.x = 390;
-  shooter.y = 180;
-  shooter.gravity = false;
-  shooter.rules = [{ trigger: 'key', key: 'KeyE', action: 'shoot', direction: 'right', speed: 600 }];
-  r2.push(shooter);
-  const s4 = makeObj('sign', 0, 0);
-  s4.x = 20;
-  s4.y = 300 - s4.h;
-  s4.message = 'Press E to shoot! Bullets pop red guys.';
-  r2.push(s4);
+  r3.push(t2);
+  const t3 = mk('actor', 710, 150); t3.gravity = false;
+  t3.rules = [{ trigger: 'timer', seconds: 2.8, action: 'shoot', direction: 'toward', speed: 320 }];
+  r3.push(t3);
+  const s5 = mk('sign', 220, G - 44); s5.message = 'The boss takes 5 hits. Dodge the turrets!'; r3.push(s5);
+  const l3 = mk('label', 20, 16); l3.text = '👑 Night Boss'; l3.size = 28; r3.push(l3);
+  const l4 = mk('label', 330, 60); l4.text = 'Stomp or shoot him 5 times!'; l4.size = 20; r3.push(l4);
+  for (const [dx, dy] of [[200, 100], [400, 80], [600, 120], [800, 90], [100, 150], [500, 200]]) {
+    const d = mk('decor', dx, dy); d.variant = 'star'; r3.push(d);
+  }
 
   return [
-    { name: 'Room 1', objects: r1 },
-    { name: 'Room 2', objects: r2 },
+    { name: 'Sunny Meadow', theme: 'day', objects: r1 },
+    { name: 'Sunset Cliffs', theme: 'sunset', objects: r2 },
+    { name: 'Night Boss', theme: 'night', objects: r3 },
   ];
 }
 

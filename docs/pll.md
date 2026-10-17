@@ -52,6 +52,7 @@ when destroyed then sound coin
 | Key is pressed | `when key <key>` | `when key E then shoot right 600` | Fires on the press, not while held |
 | Every few seconds | `when timer <seconds>` | `when timer 2 then jump 700` | Repeats forever |
 | Score reaches | `when score <n>` | `when score 10 then win` | Fires once when the score first reaches n |
+| Room cleared | `when cleared` | `when cleared then win` | Fires once when every enemy in the room is beaten — perfect for boss fights |
 | When destroyed | `when destroyed` | `when destroyed then fx poof` | Fires when this actor is destroyed — great for chain reactions |
 
 Key names: single letters work as-is (`E`, `Q`), plus `Space`, `Up`,
@@ -106,6 +107,12 @@ A "collect 10 to win" rule (put it on any actor):
 when score 10 then win
 ```
 
+A "clear every enemy to win" rule (put it on any actor in a boss room):
+
+```
+when cleared then win
+```
+
 A springy blob (this is the sample game's blob):
 
 ```
@@ -125,7 +132,9 @@ when destroyed then sound coin
 - Bullets fly straight, pop on walls, defeat red enemies, and hurt the player —
   but they can't hit whoever fired them for the first split second.
 - Landing on top of a red enemy **stomps** it (+1 score and a bounce).
-  Touching one from the side still hurts.
+  Touching one from the side still hurts. Enemies can have **HP** (set it in
+  the Properties panel) — tough ones flash white and show heart pips, so you
+  can build boss fights.
 - Touch a purple **checkpoint** flag and you'll respawn there if you fall,
   with two seconds of mercy blinking.
 - Made a typo? The error box tells you the line number — PLL is picky about

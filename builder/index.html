@@ -52,7 +52,12 @@
   #tool-desc { font-size: 11px; color: #64748b; margin-top: 4px; line-height: 1.4; }
   #center { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   #room-tabs {
-    display: flex; gap: 6px; padding: 10px 18px 0; flex-wrap: wrap;
+    display: flex; gap: 6px; padding: 10px 18px 0; flex-wrap: wrap; align-items: center;
+  }
+  .theme-wrap { margin-left: auto; padding-bottom: 8px; }
+  .theme-sel {
+    background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+    border-radius: 8px; padding: 6px 8px; font-size: 13px;
   }
   .room-tab {
     display: flex; align-items: center; gap: 8px;
@@ -222,6 +227,7 @@
       <button data-tool="sign"><span class="dot" style="background:#d6a35c"></span>Sign</button>
       <button data-tool="label"><span class="dot" style="background:#ffffff"></span>Label</button>
       <button data-tool="checkpoint"><span class="dot" style="background:#a78bfa"></span>Checkpoint</button>
+      <button data-tool="decor"><span class="dot" style="background:#4ade80"></span>Decor</button>
       <button data-tool="eraser">🧽 Eraser</button>
       <p id="tool-desc"></p>
       <p style="margin-top:auto"><a class="back" href="../index.html">← FlockBuilder</a></p>
