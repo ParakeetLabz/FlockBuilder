@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Flock — a FlockBuilder demo game</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #020617;
+    color: #e2e8f0;
+    font-family: system-ui, -apple-system, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 16px;
+  }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  h1 span { color: #22d3ee; }
+  p.sub { color: #64748b; font-size: 13px; margin-bottom: 12px; }
+  canvas {
+    border-radius: 12px;
+    box-shadow: 0 0 60px rgba(34, 211, 238, 0.15);
+    max-width: 100%;
+    max-height: 78vh;
+    touch-action: none;
+    cursor: pointer;
+  }
+  a { color: #22d3ee; font-size: 13px; margin-top: 12px; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <h1><span>Flock</span> — built with FlockBuilder</h1>
+  <p class="sub">Space / click / tap to flap &middot; built with the FlockBuilder engine</p>
+  <canvas id="game"></canvas>
+  <a href="../index.html">&larr; Back to FlockBuilder</a>
+  <script type="module" src="./game.js"></script>
+</body>
+</html>

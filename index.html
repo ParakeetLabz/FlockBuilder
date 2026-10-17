@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlockBuilder — a tiny 2D game engine</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #020617; color: #e2e8f0;
+    font-family: system-ui, -apple-system, sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 64px 24px; }
+  header { text-align: center; margin-bottom: 56px; }
+  .logo { font-size: 64px; }
+  h1 { font-size: 52px; letter-spacing: -1px; }
+  h1 span { color: #22d3ee; }
+  .tag { color: #94a3b8; font-size: 20px; margin-top: 8px; }
+  .btns { margin-top: 28px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; padding: 12px 28px; border-radius: 10px;
+    font-weight: 600; text-decoration: none; font-size: 16px;
+  }
+  .btn.primary { background: #22d3ee; color: #020617; }
+  .btn.primary:hover { background: #67e8f9; }
+  .btn.ghost { border: 1px solid #334155; color: #e2e8f0; }
+  .btn.ghost:hover { border-color: #22d3ee; color: #22d3ee; }
+  h2 { font-size: 26px; margin: 48px 0 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .card {
+    background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 20px;
+  }
+  .card h3 { font-size: 17px; margin-bottom: 6px; color: #22d3ee; }
+  .card p { font-size: 14px; color: #94a3b8; }
+  pre {
+    background: #0f172a; border: 1px solid #1e293b; border-radius: 12px;
+    padding: 20px; overflow-x: auto; font-size: 14px; color: #a5f3fc;
+  }
+  footer { text-align: center; color: #475569; font-size: 13px; margin-top: 64px; }
+  footer a { color: #22d3ee; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">&#x1F426;</div>
+    <h1>Flock<span>Builder</span></h1>
+    <p class="tag">A tiny 2D game engine for the web. No dependencies, no build step.</p>
+    <div class="btns">
+      <a class="btn primary" href="examples/flock-game/">&#x25B6; Play the demo</a>
+      <a class="btn ghost" href="https://github.com/ParakeetLabz/FlockBuilder/blob/main/docs/getting-started.md">Get started</a>
+      <a class="btn ghost" href="https://github.com/ParakeetLabz/FlockBuilder">GitHub</a>
+    </div>
+  </header>
+
+  <h2>Everything you need for a 2D game</h2>
+  <div class="grid">
+    <div class="card"><h3>Game loop</h3><p>Fixed-timestep updates with render interpolation guards, FPS tracking, and a scene stack.</p></div>
+    <div class="card"><h3>Sprites</h3><p>Rects, circles, images, and spritesheet animation out of the box.</p></div>
+    <div class="card"><h3>Physics</h3><p>Gravity plus move-and-collide AABB resolution with hit flags.</p></div>
+    <div class="card"><h3>Input</h3><p>Keyboard, mouse, and touch with per-frame pressed/released edge detection.</p></div>
+    <div class="card"><h3>Camera</h3><p>Pan, zoom, smooth follow, and screen shake.</p></div>
+    <div class="card"><h3>Audio</h3><p>Synthesized SFX with zero assets — bleeps, noise bursts, and pitch sweeps.</p></div>
+    <div class="card"><h3>Particles</h3><p>Fire-and-forget bursts with gravity, drag, and fading.</p></div>
+    <div class="card"><h3>Scenes &amp; UI</h3><p>Scene management plus a screen-space UI hook for HUDs and menus.</p></div>
+  </div>
+
+  <h2>Sixty seconds to a game</h2>
+  <pre><code>&lt;script type="module"&gt;
+import { Game, Scene, Sprite } from './src/flock.js';
+
+const game = new Game({ width: 800, height: 600 });
+const scene = new Scene(game);
+const ball = scene.add(new Sprite({
+  x: 100, y: 100, w: 40, h: 40,
+  shape: 'circle', color: '#22d3ee'
+}));
+ball.vel.set(240, 180);
+scene.update = (dt) =&gt; {
+  ball.pos.x += ball.vel.x * dt;
+  ball.pos.y += ball.vel.y * dt;
+  if (ball.x &lt; 0 || ball.x + ball.w &gt; 800) ball.vel.x *= -1;
+  if (ball.y &lt; 0 || ball.y + ball.h &gt; 600) ball.vel.y *= -1;
+};
+game.pushScene(scene);
+game.start();
+&lt;/script&gt;</code></pre>
+
+  <footer>
+    FlockBuilder v0.1.0 &middot; MIT licensed &middot; made by
+    <a href="https://parakeetlabz.vercel.app">Parakeet Labz</a>
+  </footer>
+</div>
+</body>
+</html>
